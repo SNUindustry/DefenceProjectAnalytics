@@ -1,0 +1,22 @@
+[
+  {"name": "runId", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "rowIndex", "type": "INT64", "mode": "REQUIRED"},
+  {"name": "attemptId", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "segmentIndex", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "weaponInstanceId", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "weaponId", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "weaponFamilyId", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "slotType", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "slotIndex", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "stackCount", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "baseLevel", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "effectiveLevel", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "weaponType", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "isEvolutionResult", "type": "BOOL", "mode": "NULLABLE"},
+  {"name": "isActive", "type": "BOOL", "mode": "NULLABLE"},
+  {"name": "buildVersion", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "telemetryLevel", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "environment", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "schemaVersion", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "uploadedAtUtc", "type": "TIMESTAMP", "mode": "REQUIRED"}
+]

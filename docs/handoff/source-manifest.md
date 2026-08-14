@@ -1,0 +1,109 @@
+# Source Manifest
+
+## Generation context
+
+```text
+Source repository:
+C:\Users\sbk06\programming\DefenceProject
+
+Destination:
+C:\Users\sbk06\programming\DefenceProjectAnalytics
+
+Source HEAD:
+00d5774417e6a6674aee6dfdb6f411ea0e102b53
+
+Source working tree dirty:
+false
+
+Generated/copied at UTC:
+2026-08-14T06:54:46.1964757Z
+
+Generated/copied at local time:
+2026-08-14T15:54:46.4690444+09:00
+```
+
+Cloud resources were not queried or modified. Unity/Functions source, credentials, config assets and raw telemetry were not copied.
+
+## Path mapping
+
+```text
+functions/bigquery-schema/*.json
+→ contracts/bigquery-schema/*.json
+
+functions/bigquery-views/telemetry_gameplay_segments_v1.sql
+→ sql/canonical/telemetry_gameplay_segments_v1.sql
+
+functions/bigquery-views/telemetry_completed_gameplay_segments_v1.sql
+→ sql/canonical/telemetry_completed_gameplay_segments_v1.sql
+
+functions/bigquery-views/telemetry_attempt_outcomes_v1.sql
+→ sql/canonical/telemetry_attempt_outcomes_v1.sql
+
+functions/bigquery-views/telemetry_upload_status_v1.sql
+→ sql/canonical/telemetry_upload_status_v1.sql
+
+functions/bigquery-queries/telemetry_unified_timeline_v2c.sql
+→ sql/foundation/telemetry_unified_timeline_v2c.sql
+
+functions/bigquery-queries/telemetry_post_run_lobby_summary_v2c.sql
+→ sql/foundation/telemetry_post_run_lobby_summary_v2c.sql
+```
+
+All copied contract files are byte-identical to the source paths at the revision above.
+
+## Copied file SHA-256
+
+Format: `sha256  destination path`
+
+```text
+29e4726f46c1a2460d8516621340ecf030a95d1f6274e464f72e8a32845db7dd  contracts/bigquery-schema/telemetry_enemy_damage_summary.json
+09a0f3f6c1b073b40ccaafcd9281a2539ce110433b38dfc3fc4f77b8ff5abc00  contracts/bigquery-schema/telemetry_final_weapon_state.json
+028e9322f2daa871c1aa177fb7eac6064bd0f95076715e6f4cc91dad7823cd2f  contracts/bigquery-schema/telemetry_iap_events.json
+bd2f503c70418c7aaa18125147c596a7ee19127afa7d32b99aba4623d023cfaa  contracts/bigquery-schema/telemetry_kill_summary.json
+13d781e5b32d03deb7ccb91a9340ab3f17b5bc060994582f32995e0035ef4270  contracts/bigquery-schema/telemetry_lobby_activity_events.json
+86b2c9723f95cb59c309094768a033bfadfcac4b41133fd64de1db861317262e  contracts/bigquery-schema/telemetry_player_snapshot_stats.json
+5910c437e46f45fa078e81c99f002da18c1f033ab03e9c7edeb55a517c9252d6  contracts/bigquery-schema/telemetry_player_snapshots.json
+a1cf6b0ecc39150db930cf8062a0dc309990d1a5c0551956d25d1939b8256c80  contracts/bigquery-schema/telemetry_progression_events.json
+3bf3cb022e3d850308765465af241d51e270f254dfa7ef5b54004f9870386aca  contracts/bigquery-schema/telemetry_run_feedback_events.json
+0b9a7a618cbeab9d3a48561b8cc8495ee2e8c867ad3469659b8e118e01f87ca4  contracts/bigquery-schema/telemetry_run_loadout.json
+fd44ea8e97f85b2cce24db30722442de0fbacabe38530bbe11a8cb8ed15d09c9  contracts/bigquery-schema/telemetry_run_lobby_stats.json
+0ae6dc5de04051533f1842a9af19f2d82ec0ebe1c6cd974b0c50e30936774ed0  contracts/bigquery-schema/telemetry_run_start_snapshot.json
+7ec435f145920f0b82d41ff51a20a139c8842d45536404d3a06164f6e1298e89  contracts/bigquery-schema/telemetry_run_summary.json
+59762a8b8e963a6cc32d88efe0bb773f76c78e4fbedfd09e2da8a3234fa35968  contracts/bigquery-schema/telemetry_run_transitions.json
+997205222c1ca2b85cf54eb970c8b148f5285337fe064272196779db41e62862  contracts/bigquery-schema/telemetry_shop_events.json
+f93bf6b6396d0ed3186a357519fa2aa0e9318ae9ad57318bd08a989739a26a3e  contracts/bigquery-schema/telemetry_shop_exposure_offers.json
+a7c1255b59d01ff76df75025e00d231359f241c370d6328857709678aa0d93aa  contracts/bigquery-schema/telemetry_threat_summary.json
+1459ae9cd5dd88a733b71ea4eb976a80864b5dff3def1dbc9d018b661b411ccf  contracts/bigquery-schema/telemetry_transaction_costs.json
+4e569cd72894ca64567edbd1a2ee2d8e2d9dcebec4f6e4820c9ba0663e3d7c07  contracts/bigquery-schema/telemetry_transaction_events.json
+1459ae9cd5dd88a733b71ea4eb976a80864b5dff3def1dbc9d018b661b411ccf  contracts/bigquery-schema/telemetry_transaction_rewards.json
+4aa7b354cf957796c00654006bc76548ed8c70e542ef02ec03ea73bdc5766d3b  contracts/bigquery-schema/telemetry_upgrade_exposure_candidates.json
+6c32da8c16b8e5c58cfa33fd98907eff4e41914c8f2c1dfb5aef40db87472add  contracts/bigquery-schema/telemetry_upgrade_selections.json
+812f51d3bf9ad94dea87b648dad05d4f85c7f963fe2aac50a119ad28941f59a1  contracts/bigquery-schema/telemetry_upload_chunks.json
+731859a8d6aad0f43cc98df457c1ae0479cf02b79e3d1f822f189f52f81e024d  contracts/bigquery-schema/telemetry_weapon_analytics_samples.json
+e59d0fa88fe1efbc8efc1db1136b334d54f69434b63383448b2886735722ee47  contracts/bigquery-schema/telemetry_weapon_summary.json
+879ac1c645f478b10250cfbd54c61fe079ebcef5c758a0c18baa823a5788eb90  sql/canonical/telemetry_attempt_outcomes_v1.sql
+43b3a440bc05b0006c5f859f54ab2f76b57813dd9eab3969a71882c0e0157717  sql/canonical/telemetry_completed_gameplay_segments_v1.sql
+90f01660677d17cf171e6c547f88d5a296af334b7c8200a62f23458bc4b3ce64  sql/canonical/telemetry_gameplay_segments_v1.sql
+38d566e6190bba38797795509767a052f124426cfcadaf15dad0bc80e79ffde6  sql/canonical/telemetry_upload_status_v1.sql
+6ad5505c015284a000a0420868c8b3867f6010b1f687ac43565152ac950611de  sql/foundation/telemetry_post_run_lobby_summary_v2c.sql
+86c8aeabb619d71561a423f235a7b95b6662ee3ab5fe6c3841b6bafd31c426f5  sql/foundation/telemetry_unified_timeline_v2c.sql
+```
+
+## Semantic source files not copied
+
+The handoff documents summarize, but do not vendor, these source files:
+
+- `functions/README.md`
+- `functions/src/index.ts`
+- `functions/src/telemetryContract.ts`
+- `functions/src/telemetryBigQueryMapper.ts`
+- `Assets/Scripts/Core/TelemetryIdentity.cs`
+- `Assets/Scripts/Core/PlaySessionData.cs`
+- `Assets/Scripts/Game/Resume/RunResumeSnapshotData.cs`
+- `Assets/Scripts/ScenePlay/Telemetry/TelemetryManager.cs`
+- `Assets/Scripts/ScenePlay/Telemetry/TelemetryIdentityProvider.cs`
+- `Assets/Scripts/ScenePlay/Telemetry/LobbyTelemetryModels.cs`
+- `Assets/Scripts/Economy/Transactions/TransactionTelemetryRuntime.cs`
+- `Assets/Scripts/ScenePlay/Feedback/FunFeedbackCoordinator.cs`
+- `Assets/Scripts/SceneLobby/ShopTelemetryReporter.cs`
+- `Assets/Scripts/SceneLobby/LobbyActivityTelemetryCoordinator.cs`

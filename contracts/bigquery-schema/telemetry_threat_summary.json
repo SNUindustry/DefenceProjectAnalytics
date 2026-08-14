@@ -1,0 +1,15 @@
+[
+  {"name": "runId", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "nearDeathCount", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "lowHpDuration", "type": "FLOAT64", "mode": "NULLABLE"},
+  {"name": "insideDangerZoneDuration", "type": "FLOAT64", "mode": "NULLABLE"},
+  {"name": "avgDangerDistance", "type": "FLOAT64", "mode": "NULLABLE"},
+  {"name": "minDangerDistance", "type": "FLOAT64", "mode": "NULLABLE"},
+  {"name": "surroundedMoments", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "avgEnemyDensity", "type": "FLOAT64", "mode": "NULLABLE"},
+  {"name": "buildVersion", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "telemetryLevel", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "environment", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "schemaVersion", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "uploadedAtUtc", "type": "TIMESTAMP", "mode": "REQUIRED"}
+]

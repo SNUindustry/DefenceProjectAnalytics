@@ -1,0 +1,14 @@
+[
+  {"name": "runId", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "rowIndex", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "snapshotIndex", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "elapsedTime", "type": "FLOAT64", "mode": "NULLABLE"},
+  {"name": "statType", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "statName", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "value", "type": "FLOAT64", "mode": "NULLABLE"},
+  {"name": "buildVersion", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "telemetryLevel", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "environment", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "schemaVersion", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "uploadedAtUtc", "type": "TIMESTAMP", "mode": "REQUIRED"}
+]

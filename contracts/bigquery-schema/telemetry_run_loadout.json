@@ -1,0 +1,16 @@
+[
+  {"name": "runId", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "rowIndex", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "slotKey", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "slotCategory", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "slotOrder", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "armorSlotType", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "weaponId", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "weaponFamilyId", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "weaponType", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "buildVersion", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "telemetryLevel", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "environment", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "schemaVersion", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "uploadedAtUtc", "type": "TIMESTAMP", "mode": "REQUIRED"}
+]

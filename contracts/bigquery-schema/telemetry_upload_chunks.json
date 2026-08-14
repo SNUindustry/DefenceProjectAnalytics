@@ -1,0 +1,13 @@
+[
+  {"name": "environment", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "runId", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "uploadId", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "transportVersion", "type": "INT64", "mode": "REQUIRED"},
+  {"name": "chunkIndex", "type": "INT64", "mode": "REQUIRED"},
+  {"name": "chunkCount", "type": "INT64", "mode": "REQUIRED"},
+  {"name": "chunkKind", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "payloadBytes", "type": "INT64", "mode": "REQUIRED"},
+  {"name": "payloadSha256", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "archivedAtUtc", "type": "TIMESTAMP", "mode": "REQUIRED"},
+  {"name": "mappedAtUtc", "type": "TIMESTAMP", "mode": "REQUIRED"}
+]

@@ -1,0 +1,18 @@
+[
+  {"name": "runId", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "instanceId", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "weaponId", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "weaponFamilyId", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "slotType", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "stackCount", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "totalDamage", "type": "FLOAT64", "mode": "NULLABLE"},
+  {"name": "bossDamage", "type": "FLOAT64", "mode": "NULLABLE"},
+  {"name": "hits", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "damageShare", "type": "FLOAT64", "mode": "NULLABLE"},
+  {"name": "rowIndex", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "buildVersion", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "telemetryLevel", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "environment", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "schemaVersion", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "uploadedAtUtc", "type": "TIMESTAMP", "mode": "REQUIRED"}
+]

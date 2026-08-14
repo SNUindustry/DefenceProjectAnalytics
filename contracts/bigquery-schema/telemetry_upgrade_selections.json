@@ -1,0 +1,20 @@
+[
+  {"name": "runId", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "rowIndex", "type": "INT64", "mode": "REQUIRED"},
+  {"name": "attemptId", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "segmentIndex", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "exposureId", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "exposureIndex", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "candidateIndex", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "elapsedTime", "type": "FLOAT64", "mode": "NULLABLE"},
+  {"name": "segmentElapsedTime", "type": "FLOAT64", "mode": "NULLABLE"},
+  {"name": "upgradeId", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "category", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "weaponFamilyId", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "grantWeaponId", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "buildVersion", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "telemetryLevel", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "environment", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "schemaVersion", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "uploadedAtUtc", "type": "TIMESTAMP", "mode": "REQUIRED"}
+]

@@ -1,0 +1,19 @@
+[
+  {"name": "runId", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "rowIndex", "type": "INT64", "mode": "REQUIRED"},
+  {"name": "attemptId", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "segmentIndex", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "transitionIndex", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "transitionType", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "bossId", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "phaseIndex", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "waveNumber", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "floorNumber", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "elapsedTime", "type": "FLOAT64", "mode": "NULLABLE"},
+  {"name": "segmentElapsedTime", "type": "FLOAT64", "mode": "NULLABLE"},
+  {"name": "buildVersion", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "telemetryLevel", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "environment", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "schemaVersion", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "uploadedAtUtc", "type": "TIMESTAMP", "mode": "REQUIRED"}
+]

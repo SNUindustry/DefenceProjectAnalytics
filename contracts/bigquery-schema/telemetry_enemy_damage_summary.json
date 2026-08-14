@@ -1,0 +1,16 @@
+[
+  {"name": "runId", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "rowIndex", "type": "INT64", "mode": "REQUIRED"},
+  {"name": "sourceClassification", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "enemyDefinitionId", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "enemyTier", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "enemyClassification", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "totalAppliedDamage", "type": "FLOAT64", "mode": "NULLABLE"},
+  {"name": "hitCount", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "lethalHitCount", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "buildVersion", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "telemetryLevel", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "environment", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "schemaVersion", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "uploadedAtUtc", "type": "TIMESTAMP", "mode": "REQUIRED"}
+]
