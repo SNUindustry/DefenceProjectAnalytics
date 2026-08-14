@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Callable
 from typing import Any
 
 import pandas as pd
@@ -11,6 +14,18 @@ from defence_project_analytics.bigquery_client import query_dataframe
 from defence_project_analytics.config import AnalyticsConfig
 from defence_project_analytics.models import QueryParameterValue, QuerySpec
 from defence_project_analytics.sql_loader import load_query
+from defence_project_analytics.reporting.models import (
+    REPORT_CONTRACT_VERSION,
+    AnalysisScope,
+    DataQuality,
+    MetricRatio,
+    ReportBundle,
+    ReportDefinitions,
+    ReportMetadata,
+    SampleSummary,
+    utc_now_seconds,
+)
+from defence_project_analytics.reporting.writer import write_report_bundle
 
 
 RUN_FACT_SQL = "sql/analysis/run_fact_v1.sql"
@@ -203,3 +218,77 @@ def get_stage_overview(
         else:
             result[key] = value
     return result
+
+
+def generate_stage_overview_report(
+    request: StageOverviewRequest,
+    metrics: dict[str, Any],
+    *,
+    output_root: Path,
+    overwrite: bool = False,
+    clock: Callable[[], datetime] = utc_now_seconds,
+) -> Path:
+    """Adapt an existing Stage Overview result to the common report bundle."""
+
+    if request.content_version is None:
+        raise ValueError("content_version is required when generating a Stage Overview report")
+    final_attempts = int(metrics.get("final_attempts") or 0)
+    unique_players = int(metrics.get("unique_telemetry_players") or 0)
+    deaths = int(metrics.get("deaths") or 0)
+    assessed = int(metrics.get("telemetry_complete_assessed_attempts") or 0)
+    complete_rate = metrics.get("telemetry_complete_rate")
+    complete = round(float(complete_rate) * assessed) if complete_rate is not None else 0
+    completeness = MetricRatio.from_counts(complete, assessed)
+    quality = DataQuality(
+        telemetry_complete_rate=completeness,
+        detail_coverage_rate=completeness,
+        unresolved_release_rows=0,
+        excluded_incomplete_detail_rows=max(assessed - complete, 0),
+        unassessed_legacy_detail_rows=max(final_attempts - assessed, 0),
+        mixed_content_detail_rows=0,
+        partially_covered_attempts=0,
+        missing_death_attribution_rows=0,
+        approximate_death_state_rows=0,
+        missing_death_state_rows=0,
+        invalid_death_time_rows=0,
+    )
+    scope = AnalysisScope(request.environment, request.stage_key, request.content_version)
+    sample = SampleSummary(final_attempts, unique_players, deaths, complete, complete, 0)
+    metadata = ReportMetadata(
+        REPORT_CONTRACT_VERSION,
+        "stageOverview",
+        "1.0.0",
+        clock(),
+        scope,
+        sample,
+        quality,
+        ReportDefinitions(
+            population="One row per final attempt from telemetry_attempt_outcomes_v1.",
+            clear_rate="Clear / (Clear + Dead); Abandon is excluded.",
+            detail_eligibility="Completeness is assessed from upload status when available.",
+        ),
+    )
+    clear_rate = metrics.get("clear_rate")
+    clear_display = "n/a" if clear_rate is None else f"{float(clear_rate):.1%}"
+    markdown = f"""# Stage Overview Report
+
+## Scope
+
+- Environment: `{request.environment}`
+- Stage: `{request.stage_key}`
+- Content version: `{request.content_version}`
+
+## Outcome
+
+- Final attempts: {final_attempts}
+- Clears: {int(metrics.get('clears') or 0)}
+- Deaths: {deaths}
+- Abandons: {int(metrics.get('abandons') or 0)}
+- Clear rate (Clear / (Clear + Dead)): {clear_display}
+
+## Caveats
+
+- Nullable legacy upload status is excluded from the telemetry completeness denominator.
+"""
+    bundle = ReportBundle(metadata, metrics, markdown)
+    return write_report_bundle(bundle, output_root=output_root, overwrite=overwrite)

@@ -1,20 +1,25 @@
 # DefenceProjectAnalytics
 
-`DefenceProject` telemetry의 handoff, BigQuery schema contract, canonical SQL을 Source of Truth로 사용하는 read-only Python analytics foundation입니다. Phase A는 연결·계약 검증과 Stage Overview까지만 제공하며 balancing 모델, dashboard, Streamlit은 포함하지 않습니다.
+DefenceProject telemetry handoff, copied BigQuery schemas, and canonical SQL are the source of truth for this read-only analytics project. Phase B-1 adds a versioned aggregate report contract and Stage Difficulty / Death Analysis while retaining the Phase A foundation.
 
-## 안전 경계
+No command in this repository creates or changes cloud resources. Queries are restricted to `SELECT`/`WITH`; service-account keys, telemetry upload secrets, raw bucket access, full local telemetry dumps, dashboards, and balancing recommendations are outside scope.
 
-- 인증은 Application Default Credentials(ADC)만 사용합니다.
-- BigQuery query는 `SELECT`/`WITH`만 허용합니다.
-- `CREATE`, `DROP`, `UPDATE`, `DELETE`, `INSERT`, `MERGE`, export 등 mutation은 거부합니다.
-- service-account JSON, Firebase credential, Google token, Unity `X-Telemetry-App-Secret`을 만들거나 저장하지 않습니다.
-- raw bucket에 접근하지 않으며 raw telemetry 전체를 로컬로 dump하지 않습니다.
+Defaults are GCP project `bald-ops`, dataset `game_telemetry`, and location `asia-northeast3`. Override them with global CLI options or `DPA_GCP_PROJECT`, `DPA_BIGQUERY_DATASET`, and `DPA_BIGQUERY_LOCATION`.
 
-기본 설정은 GCP project `bald-ops`, dataset `game_telemetry`, location `asia-northeast3`입니다. 필요하면 `DPA_GCP_PROJECT`, `DPA_BIGQUERY_DATASET`, `DPA_BIGQUERY_LOCATION` 환경 변수 또는 CLI option으로 변경할 수 있습니다. `environment`, `stageKey`, `contentVersion`은 query parameter로만 전달합니다.
+## 1. ADC authentication
 
-## 설치
+Install the Google Cloud CLI, then create Application Default Credentials (ADC). Browser consent may show multiple Google Auth Library permissions; ADC needs the Google Cloud data access permission. The Cloud SQL permission is not used by this repository.
 
-현재 개발 기준은 Python 3.11.9입니다(`requires-python >=3.11`).
+```powershell
+gcloud auth application-default login
+gcloud config set project bald-ops
+```
+
+`gcloud auth login` alone is not a replacement for client-library ADC. If ADC is absent, the CLI prints a diagnostic containing the command above. The expected least-privilege access is BigQuery job execution on the project and data viewing on the dataset.
+
+## 2. Python installation
+
+The project supports Python 3.11+ and currently runs on Python 3.11.9.
 
 ```powershell
 py -3.11 -m venv .venv
@@ -23,72 +28,110 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[test]"
 ```
 
-설치되는 주요 dependency는 `google-cloud-bigquery`, `db-dtypes`, `pandas`, `pyarrow`, `matplotlib`, `jupyter`, `pytest`입니다.
+Runtime dependencies remain `google-cloud-bigquery`, `db-dtypes`, `pandas`, `pyarrow`, `matplotlib`, and `jupyter`; tests use `pytest`. Phase B-1 adds no dependency.
 
-## ADC 인증
+## 3. Contract validation
 
-Google Cloud CLI를 설치한 뒤 사용자 ADC를 설정합니다.
-
-```powershell
-gcloud auth application-default login
-gcloud config set project bald-ops
-```
-
-CLI 로그인과 client-library ADC는 별도이므로 `gcloud auth login`만으로는 충분하지 않습니다. ADC가 없으면 CLI는 위 명령을 포함한 diagnostic을 출력합니다. 필요한 최소 권한 후보는 project의 `roles/bigquery.jobUser`와 `bald-ops.game_telemetry` dataset의 `roles/bigquery.dataViewer`입니다.
-
-## 실행
-
-로컬 JSON 25개를 parse하고 실제 핵심 table/view 및 필수 column을 확인합니다. legacy의 nullable mode 차이는 blocker로 판정하지 않습니다.
+Parse the copied JSON contracts and validate required live objects and analytics-critical columns. Legacy nullable-mode differences do not fail validation by themselves.
 
 ```powershell
 defence-analytics validate-contracts
-```
-
-필수 table/view 6개에 metadata lookup과 최소 read-only query를 실행합니다.
-
-```powershell
 defence-analytics connection-smoke
 ```
 
-Stage Overview를 실행합니다. `contentVersion`은 선택 사항입니다.
+## 4. Stage Overview
+
+The existing API and default CLI JSON are unchanged. `contentVersion` remains optional for an ordinary overview.
 
 ```powershell
-defence-analytics stage-overview --stage-key <stage-key> --environment Production
-defence-analytics stage-overview --stage-key <stage-key> --environment Test --content-version 42
+defence-analytics stage-overview --stage-key stage1 --environment Production
+defence-analytics stage-overview --stage-key stage1 --environment Test --content-version 2
 ```
 
-비용 상한을 추가하려면 `--maximum-bytes-billed <bytes>`를 지정할 수 있습니다. 결과는 raw row가 아니라 집계된 JSON 한 건입니다.
+To opt into the common three-file bundle, provide an output directory. Bundle generation requires `contentVersion`.
 
-Python API도 동일한 query parameter와 read-only 경계를 사용합니다.
+```powershell
+defence-analytics stage-overview --stage-key stage1 --environment Test --content-version 2 --output-root reports/generated
+```
+
+## 5. Stage Difficulty report
+
+All three primary scope values are required and exact-match filters. Test and Production can never be mixed in one report.
+
+```powershell
+defence-analytics stage-difficulty `
+  --environment Test `
+  --stage-key stage1 `
+  --content-version 2
+```
+
+Optional exact filters are `--app-version`, `--release-id`, `--release-channel`, `--release-type`, and `--development-build true|false`. Partition bounds are `--uploaded-start-utc` (inclusive) and `--uploaded-end-utc` (exclusive), both ISO-8601 values with an offset or `Z`.
+
+The command first dry-runs all seven queries. Their combined estimate must not exceed `--maximum-total-bytes`, which defaults to `1,000,000,000` bytes. No analysis query executes when the cap is exceeded. Executed queries also receive a bytes-billed cap.
+
+The same workflow is available as a Python API:
 
 ```python
-from defence_project_analytics import StageOverviewRequest, get_stage_overview
-
-result = get_stage_overview(
-    StageOverviewRequest(
-        stage_key="stage-key",
-        environment="Production",
-        content_version=None,
-    )
+from defence_project_analytics import (
+    StageDifficultyRequest,
+    analyze_stage_difficulty,
+    generate_stage_difficulty_report,
 )
+
+request = StageDifficultyRequest(
+    environment="Test",
+    stage_key="stage1",
+    content_version=2,
+)
+analysis = analyze_stage_difficulty(request)
+generated_path = generate_stage_difficulty_report(request)
 ```
 
-## 지표 계약
+Reports are written under:
 
-[`sql/analysis/run_fact_v1.sql`](sql/analysis/run_fact_v1.sql)은 `telemetry_attempt_outcomes_v1`을 중심으로 final attempt당 한 행을 만듭니다. raw `telemetry_run_summary` 행 수를 attempt 수로 세지 않습니다.
+```text
+reports/generated/<analysis-type>/<environment>__<stage-slug>__cv-<version>__<scope-hash8>/
+```
 
-- Feedback: `environment + runId`
-- v2 completeness: `environment + runId + uploadId`
-- Clear rate: `Clear / (Clear + Dead)`; Abandon은 분모에서 제외
-- telemetryComplete rate: status가 존재하는 v2 attempt만 분모에 포함; legacy/status 없음은 `NULL`
-- 빈 문자열/nullable telemetry player ID는 unique player 수에서 제외
+An existing target fails by default. `--overwrite` only replaces a generated report whose `analysisType` and complete canonical scope match; replacement uses a sibling temporary directory.
 
-## 테스트
+## 6. Population, resume, and completeness
+
+- Final attempts come only from `telemetry_attempt_outcomes_v1`; raw `telemetry_run_summary` rows are not counted as attempts.
+- Clear rate is `Clear / (Clear + Dead)`; Abandon is reported separately.
+- Death metrics use final attempts with `gameplayOutcome='Dead'`.
+- Candidate detail includes every gameplay segment belonging to a selected attempt, using null-safe player ID equality.
+- Run rows are deduplicated by `environment + runId`, and child rows by `environment + runId + rowIndex`.
+- Detail requires both matching content/release scope and `telemetryComplete=TRUE` on `environment + runId + uploadId`.
+- Explicit incomplete, missing legacy status, and mixed-scope resume segments are separately counted and excluded.
+- Incoming damage and threat include all eligible resume segments once. Final lethal cause and player state use only the final Dead run.
+- Lethal-hit events can precede revival and are never treated as final death counts.
+
+## 7. Warning interpretation
+
+Warnings do not fail report generation. Defaults flag fewer than 30 attempts, 10 unique players, 20 deaths, or 20 detail-eligible runs. Other stable codes identify incomplete or legacy detail, mixed content, missing attribution/state, unresolved release identity, unrecognized values, and invalid death timing. Treat affected metrics as descriptive aggregates with the stated coverage.
+
+## 8. LLM handoff
+
+The report contract is documented in [docs/report-contract.md](docs/report-contract.md). The recommended files to provide to an LLM are:
+
+```text
+report.md
+metrics.json
+metadata.json
+tables/deaths_by_enemy.csv
+tables/deaths_by_phase.csv
+tables/incoming_damage_by_enemy.csv
+tables/threat_by_outcome.csv
+```
+
+All generated files contain aggregates only: no telemetry player, attempt, run, or upload identifiers. Markdown contains deterministic facts and caveats, not balancing conclusions.
+
+## Tests and build
 
 ```powershell
 python -m pytest
+python -m build
 ```
 
-테스트는 SQL placeholder와 named parameter binding, read-only guard, run-fact 계약, Clear-rate 분모, nullable/legacy 처리, Production/Test 및 contentVersion filter를 검증합니다.
-
-상세 telemetry 의미와 privacy/IAM 경계는 [`docs/handoff/README.md`](docs/handoff/README.md)에서 시작하십시오.
+See [docs/handoff/README.md](docs/handoff/README.md) for the source telemetry, privacy, join, completeness, and release-identity contracts.
