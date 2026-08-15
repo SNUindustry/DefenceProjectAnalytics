@@ -20,7 +20,27 @@ from defence_project_analytics.llm_analysis.models import (
     AnalysisProvider,
     ValidatedAnalysis,
 )
-from defence_project_analytics.llm_analysis.providers import ScriptedAnalysisProvider
+from defence_project_analytics.llm_analysis.provider_errors import (
+    AnalysisProviderError,
+    AnthropicAuthenticationError,
+    AnthropicConnectionError,
+    AnthropicContextTooLargeError,
+    AnthropicCredentialError,
+    AnthropicMalformedResponseError,
+    AnthropicPermissionError,
+    AnthropicRateLimitError,
+    AnthropicRequestValidationError,
+    AnthropicResponseTruncatedError,
+    AnthropicServerError,
+    AnthropicStructuredOutputUnsupportedError,
+    AnthropicTimeoutError,
+)
+from defence_project_analytics.llm_analysis.providers import (
+    DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS,
+    DEFAULT_ANTHROPIC_MODEL,
+    AnthropicAnalysisProvider,
+    ScriptedAnalysisProvider,
+)
 
 __all__ = [
     "AnalysisPromptPackage",
@@ -28,6 +48,22 @@ __all__ = [
     "AnalysisProvider",
     "ValidatedAnalysis",
     "ScriptedAnalysisProvider",
+    "AnthropicAnalysisProvider",
+    "DEFAULT_ANTHROPIC_MODEL",
+    "DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS",
+    "AnalysisProviderError",
+    "AnthropicCredentialError",
+    "AnthropicAuthenticationError",
+    "AnthropicPermissionError",
+    "AnthropicRateLimitError",
+    "AnthropicRequestValidationError",
+    "AnthropicStructuredOutputUnsupportedError",
+    "AnthropicContextTooLargeError",
+    "AnthropicTimeoutError",
+    "AnthropicConnectionError",
+    "AnthropicServerError",
+    "AnthropicResponseTruncatedError",
+    "AnthropicMalformedResponseError",
     "LlmAnalysisError",
     "SourceBriefValidationError",
     "SourceBriefMutationError",
@@ -39,4 +75,3 @@ __all__ = [
     "generate_validated_analysis",
     "run_analysis_with_provider",
 ]
-

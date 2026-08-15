@@ -106,15 +106,21 @@ def run_analysis_with_provider(
     package = build_analysis_prompt(request, workspace_root=workspace_root)
     response = provider.generate(package)
     analysis = validate_response(package, response)
+    provider_metadata = getattr(provider, "last_run_metadata", None)
+    if not isinstance(provider_metadata, Mapping):
+        provider_metadata = {}
+    provider_mode = str(provider_metadata.get("providerMode", "programmaticProtocol"))
+    provider_call_count = int(provider_metadata.get("providerCallCount", 1))
     return write_validated_analysis(
         package,
         analysis,
         response_input_digest=_response_digest(response),
         output_root=output_root,
-        provider_mode="programmaticProtocol",
+        provider_mode=provider_mode,
         provider_name=provider.provider_name,
         model_name=provider.model_name,
-        provider_call_count=1,
+        provider_call_count=provider_call_count,
+        provider_metadata=provider_metadata,
         overwrite=overwrite,
     )
 
@@ -129,4 +135,3 @@ __all__ = [
     "generate_validated_analysis",
     "run_analysis_with_provider",
 ]
-

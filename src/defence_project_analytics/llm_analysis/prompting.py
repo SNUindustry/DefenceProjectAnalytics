@@ -107,12 +107,17 @@ def _response_contract() -> str:
       "metricFamily": "outcome", "metric": "clearRate"}],
     "guardrailMetrics": [],
     "minimumEvidenceRequirements": ["ClearExistingLowSampleWarning"],
-    "comparisonPlan": "새 contentVersion의 관련 분석을 재실행한 뒤 contentVersionCompare로 비교하고 사람이 검토한다.",
+    "comparisonPlan": "NewContentVersionVsCurrentUsingContentVersionCompare",
     "rollbackIndicators": []
   }]
 }
 Use a validation plan for every Experiment, BalanceChange, UXChange, or TelemetryChange candidate,
 and link it one-to-one through validationPlanId. Investigate and CollectMoreData candidates may omit it.
+Return no more than 10 observations, 5 interpretations, 5 hypotheses, 5 evidence gaps, 5 change
+candidates, and 5 validation plans. Each executiveSummary ID list may contain no more than 3 IDs.
+Return no more than 10 rollback indicators per validation plan. Every rollbackIndicators item
+must be an object shaped as {"metric":{"domain":"...","metricFamily":"...","metric":"..."},
+"condition":"UnexpectedDirection"}; use an empty list when no valid rollback indicator is needed.
 Do not return evidenceStrength, actionability, overallAssessment, or any computed metric value; the local validator derives them."""
 
 

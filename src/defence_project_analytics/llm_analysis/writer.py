@@ -31,6 +31,21 @@ from defence_project_analytics.reporting.renderers import render_json, to_extern
 
 
 _SLUG = re.compile(r"[^A-Za-z0-9-]+")
+_SAFE_PROVIDER_METADATA = frozenset({
+    "providerRequestDigest",
+    "structuredOutputsUsed",
+    "structuredOutputSchemaMode",
+    "responseContractSchemaDigest",
+    "anthropicWireSchemaDigest",
+    "inputTokenCount",
+    "actualInputTokens",
+    "actualOutputTokens",
+    "providerTokenCountCallCount",
+    "providerGenerationCallCount",
+    "providerErrorCount",
+    "providerRetryCount",
+    "configuredMaxTransportRetries",
+})
 
 
 def _slug(value: str | None, fallback: str) -> str:
@@ -194,6 +209,7 @@ def write_validated_analysis(
     provider_name: str | None = None,
     model_name: str | None = None,
     provider_call_count: int = 0,
+    provider_metadata: Mapping[str, Any] | None = None,
     overwrite: bool = False,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc).replace(microsecond=0),
 ) -> Path:
@@ -254,6 +270,12 @@ def write_validated_analysis(
         "cloudAccessPerformed": False,
         "sourceAnalyzersExecuted": False,
     }
+    if provider_metadata:
+        manifest.update({
+            key: provider_metadata[key]
+            for key in sorted(_SAFE_PROVIDER_METADATA)
+            if key in provider_metadata
+        })
     files = {
         "analysis.md": markdown,
         "analysis.json": render_analysis_json(analysis),

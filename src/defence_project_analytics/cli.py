@@ -58,9 +58,14 @@ from defence_project_analytics.brief.models import EvidenceSelectionPolicy
 from defence_project_analytics.llm_analysis import (
     AnalysisPromptRequest,
     AnalysisResponseValidationError,
+    AnthropicAnalysisProvider,
+    DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS,
+    DEFAULT_ANTHROPIC_MODEL,
     generate_analysis_prompt,
     generate_validated_analysis,
+    run_analysis_with_provider,
 )
+from defence_project_analytics.llm_analysis.provider_errors import AnalysisProviderError
 
 
 def _json(value: Any) -> None:
@@ -287,11 +292,100 @@ def build_parser() -> argparse.ArgumentParser:
     analysis_validate.add_argument("--model-name")
     analysis_validate.add_argument("--output-root", type=Path, default=Path("reports/generated"))
     analysis_validate.add_argument("--overwrite", action="store_true")
+    analysis_run = subparsers.add_parser(
+        "analysis-run", help="Run C-2 through the native Anthropic Structured Outputs API"
+    )
+    analysis_run.add_argument("--source-brief", type=Path, required=True)
+    analysis_run.add_argument("--provider", choices=("anthropic",), default="anthropic")
+    analysis_run.add_argument("--model", default=DEFAULT_ANTHROPIC_MODEL)
+    analysis_run.add_argument("--analysis-objective")
+    analysis_run.add_argument("--output-language", choices=("ko", "en"), default="ko")
+    analysis_run.add_argument("--max-prompt-characters", type=int, default=400_000)
+    analysis_run.add_argument(
+        "--max-output-tokens", type=int, default=DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS
+    )
+    analysis_run.add_argument("--output-root", type=Path, default=Path("reports/generated"))
+    analysis_run.add_argument("--overwrite", action="store_true")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "analysis-run":
+        try:
+            provider = AnthropicAnalysisProvider(
+                model_name=args.model,
+                max_output_tokens=args.max_output_tokens,
+            )
+            path = run_analysis_with_provider(
+                AnalysisPromptRequest(
+                    source_brief_path=args.source_brief,
+                    analysis_objective=args.analysis_objective,
+                    output_language=args.output_language,
+                    max_prompt_characters=args.max_prompt_characters,
+                ),
+                provider,
+                output_root=args.output_root,
+                overwrite=args.overwrite,
+            )
+            analysis = json.loads((path / "analysis.json").read_text(encoding="utf-8"))
+            manifest = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
+            _json({
+                "reportPath": str(path.resolve()),
+                "analysisExecutionId": manifest["analysisExecutionId"],
+                "providerName": manifest["providerName"],
+                "modelName": manifest["modelName"],
+                "inputTokenCount": manifest.get("inputTokenCount"),
+                "actualInputTokens": manifest.get("actualInputTokens"),
+                "actualOutputTokens": manifest.get("actualOutputTokens"),
+                "providerCallCount": manifest["providerCallCount"],
+                "providerRetryCount": manifest.get("providerRetryCount"),
+                "validatorStatus": manifest["validationStatus"],
+                "overallAssessment": analysis["overallAssessment"],
+                "estimatedBytes": 0,
+            })
+            return 0
+        except AnalysisResponseValidationError as exc:
+            metadata = getattr(provider, "last_run_metadata", {})
+            print(json.dumps({
+                "errorCode": "ANALYSIS_RESPONSE_VALIDATION_FAILED",
+                "validationStatus": "Invalid",
+                "issues": exc.issues,
+                "modelName": getattr(provider, "model_name", None),
+                "inputTokenCount": metadata.get("inputTokenCount"),
+                "actualInputTokens": metadata.get("actualInputTokens"),
+                "actualOutputTokens": metadata.get("actualOutputTokens"),
+                "providerCallCount": metadata.get("providerCallCount"),
+                "providerRetryCount": metadata.get("providerRetryCount"),
+            }, ensure_ascii=False, indent=2), file=sys.stderr)
+            return 1
+        except AnalysisProviderError as exc:
+            metadata = getattr(provider, "last_run_metadata", {})
+            print(json.dumps({
+                "errorCode": exc.code,
+                "message": str(exc),
+                "modelName": getattr(provider, "model_name", None),
+                "inputTokenCount": metadata.get("inputTokenCount"),
+                "actualInputTokens": metadata.get("actualInputTokens"),
+                "actualOutputTokens": metadata.get("actualOutputTokens"),
+                "providerCallCount": metadata.get("providerCallCount"),
+                "providerTokenCountCallCount": metadata.get(
+                    "providerTokenCountCallCount"
+                ),
+                "providerGenerationCallCount": metadata.get(
+                    "providerGenerationCallCount"
+                ),
+                "providerErrorCount": metadata.get("providerErrorCount"),
+                "providerRetryCount": metadata.get("providerRetryCount"),
+                "providerDiagnostics": getattr(exc, "details", {}),
+            }, ensure_ascii=False, indent=2), file=sys.stderr)
+            return 1
+        except Exception as exc:
+            print(json.dumps({
+                "errorCode": "ANALYSIS_RUN_FAILED",
+                "errorType": type(exc).__name__,
+            }, ensure_ascii=False, indent=2), file=sys.stderr)
+            return 1
     # C-2 local commands run before any ADC or BigQuery client creation.
     if args.command == "analysis-prompt":
         try:

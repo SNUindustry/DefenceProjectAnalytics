@@ -354,9 +354,10 @@ reproducibility checks. C-1 itself produces no interpretation or tuning decision
 
 ## 11.1 Evidence-Grounded LLM Analysis
 
-Phase C-2 creates a provider-neutral prompt from one C-1 bundle and validates an external JSON
-response locally. It does not call an LLM API, load provider credentials, query BigQuery, or rerun a
-source analysis.
+Phase C-2 creates a provider-neutral prompt from one C-1 bundle and validates a JSON response
+locally. The manual workflow does not call an LLM API. The optional Anthropic transport calls only
+the Claude Messages and token-count endpoints; neither workflow queries BigQuery or reruns a source
+analysis.
 
 ```powershell
 defence-analytics analysis-prompt `
@@ -384,6 +385,39 @@ counter evidence was identified in that selected brief, not that none exists. Th
 actionability is `HumanReviewCandidate`, which is a human-reviewed experiment candidate and never
 authorizes a production change or deployment. See
 [docs/llm-analysis-contract.md](docs/llm-analysis-contract.md).
+
+### Anthropic API workflow
+
+Install the project dependencies and expose the credential to the process that runs the CLI. The
+official SDK reads `ANTHROPIC_API_KEY` from the environment; do not put the key in a command,
+repository file, `.env`, report, or log.
+
+```powershell
+defence-analytics analysis-run `
+  --source-brief reports/generated/analysis-brief/<scope-id> `
+  --provider anthropic
+```
+
+The default model is `claude-opus-5`; override it with `--model`. The default non-streaming output
+cap is 20,000 tokens. The command first sends the exact
+system/user/schema request to Anthropic token counting, then performs one Structured Outputs
+generation and passes the returned JSON through the existing strict C-2 validator. The provider
+does not fall back to unconstrained text, repair invalid JSON, trim C-1 evidence, or retry a local
+schema/citation/policy failure. Transport retries are bounded and recorded.
+
+The Anthropic wire schema contains the seven analysis sections as structured object/array fields.
+It enforces provider-supported structure, required fields, enums, and nested rollback-indicator
+shapes. Anthropic-unsupported constraints such as `maxItems` and string-length limits remain in the
+canonical contract and prompt guidance but are removed from the wire schema; the unchanged strict
+local validator is their final enforcement authority. Source identity, analysis version, and
+comparison direction are not model-generated fields: the host projects their canonical values from
+the validated C-1 package before validation. Token counting and generation use the same transformed
+wire schema. The schema mode and canonical/wire schema digests are recorded in the final manifest.
+
+The final manifest and stdout record the preflight input token count, actual input/output usage,
+model, provider call count, and retry count. They never contain the API key or raw provider response.
+`analysis-prompt` and `analysis-validate` remain supported for manual use. Anthropic execution does
+not authorize Unity edits, balance changes, commits, releases, or deployment.
 
 ## 12. Population, resume, and completeness
 

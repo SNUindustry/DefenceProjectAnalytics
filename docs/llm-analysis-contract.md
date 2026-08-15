@@ -1,15 +1,15 @@
 # Evidence-Grounded LLM Analysis Contract 1.0.0
 
 Phase C-2 consumes exactly one validated Phase C-1 Analysis Brief bundle. It does not query
-BigQuery, rerun an analyzer, retrieve raw telemetry, or modify game content. The default operational
+BigQuery, rerun an analyzer, retrieve raw telemetry, or modify game content. The manual operational
 workflow is provider-neutral:
 
 ```text
 analysis-prompt -> external LLM JSON -> analysis-validate
 ```
 
-No OpenAI, Anthropic, HTTP, or credential adapter is included in v1. `AnalysisProvider` is a Python
-protocol for future transports and deterministic tests.
+`AnalysisProvider` remains the transport boundary. Phase C-2A adds one native Anthropic transport;
+no OpenAI-compatible layer or other provider adapter is used.
 
 ## Input and integrity
 
@@ -108,3 +108,57 @@ evidence catalog. The execution identity includes prompt, provider descriptor, a
 analysis digests. Different semantic responses create different executions. Raw provider responses
 and credentials are not stored.
 
+## Anthropic provider transport
+
+The Anthropic adapter uses the official Python SDK and its environment-based
+`ANTHROPIC_API_KEY` configuration. The key is never passed as a CLI argument, copied into a prompt,
+serialized into a manifest, or included in an exception. The provider uses `claude-opus-5` by
+default and accepts an explicit model override.
+
+The provider maps the existing semantic prompt into a top-level Anthropic `system` value and one
+`user` message containing the untrusted evidence boundary. This representation does not replace or
+rehash the provider-independent `promptDigest`; a separate secret-free provider request digest is
+recorded.
+
+The request uses native Structured Outputs through `output_config.format` with
+`type="json_schema"`. The wire schema contains the seven model-generated analysis sections as
+structured object/array fields and enforces their required fields, enums, nested rollback-indicator
+shape, and `additionalProperties=false`. It is an explicit provider-compatible projection of the
+canonical C-2 schema. Constraints that Anthropic Structured Outputs does not enforce, including
+`maxItems` and string-length limits, are removed from the wire schema and retained as descriptions;
+the unchanged local validator remains the hard enforcement authority for all collection and text
+limits. Source identity, analysis version, and
+comparison direction are host-controlled: they are projected from the validated C-1 prompt package
+and cannot be supplied or modified by the model. The full contract schema digest and the explicit
+`hostIdentityStructuredBody` mode, plus the transformed wire-schema digest, are recorded in
+metadata. Token counting and generation receive the same transformed wire schema. Structured output is therefore a
+transport boundary, not the final trust boundary: field shape, Evidence IDs, metrics, entities,
+comparison direction, Limited/Insufficient gating, counter-evidence semantics, causal wording,
+tuning policy, privacy, and validation-plan linkage are checked locally. Unsupported Structured
+Outputs fail explicitly and never fall back to unconstrained text.
+
+Anthropic documents that its SDK removes unsupported JSON Schema constraints, transfers the
+constraint guidance into descriptions, and validates the original schema locally. This adapter
+implements that boundary explicitly rather than depending on a private SDK helper. A generation
+that exceeds a canonical cardinality can therefore pass the provider grammar but fails closed in
+the local C-2 validator; it is never truncated, repaired, or regenerated.
+
+Before generation, `messages.count_tokens` receives the same model, system/user messages, and
+output schema. The provider does not truncate C-1 evidence when the request is too large. It records
+`inputTokenCount` separately from the generation response's `actualInputTokens` and
+`actualOutputTokens` because the API values may differ.
+
+Only transient connection, timeout, rate-limit, and server errors are eligible for a bounded
+transport retry. The SDK's internal retry is disabled so retry counts are not duplicated. Request,
+schema, credential, local validation, malformed response, refusal, and truncation failures are not
+repaired. A `max_tokens` or context-window stop is reported as a truncated-response provider error;
+partial JSON is never sent to the C-2 validator.
+
+Anthropic response bodies are parsed as exactly one JSON object. Provider transport metadata in the
+final manifest is limited to model, token counts, call/retry/error counts, Structured Outputs use,
+and digests. No raw provider response, request ID, authorization value, or price estimate is saved.
+
+References: [Anthropic Structured Outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs),
+[Token counting](https://platform.claude.com/docs/en/build-with-claude/token-counting),
+[Python SDK](https://platform.claude.com/docs/en/cli-sdks-libraries/sdks/python), and
+[API errors](https://platform.claude.com/docs/en/api/errors).

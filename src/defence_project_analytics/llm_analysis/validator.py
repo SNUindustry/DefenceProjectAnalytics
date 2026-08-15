@@ -14,14 +14,20 @@ from defence_project_analytics.llm_analysis.loader import canonical_digest
 from defence_project_analytics.llm_analysis.models import (
     ACTION_TYPES,
     ANALYSIS_VERSION,
+    COMPARISON_PLANS,
     COUNTER_SEARCH_VALUES,
     DIRECTIONS,
     FINDING_TYPES,
     IMPORTANCE_VALUES,
     KNOWN_ANALYSES,
     MINIMUM_REQUIREMENTS,
+    MAX_EXECUTIVE_SUMMARY_IDS,
+    MAX_OBSERVATIONS,
+    MAX_RESPONSE_SECTION_ITEMS,
+    MAX_ROLLBACK_INDICATORS,
     OBSERVABLE_DIRECTIONS,
     RESPONSE_CONTRACT_VERSION,
+    ROLLBACK_CONDITIONS,
     TARGET_TYPES,
     AnalysisPromptPackage,
     ChangeCandidate,
@@ -59,14 +65,6 @@ _ID_PATTERNS = {
     "change": re.compile(r"CHG-\d{3}$"),
     "validation": re.compile(r"VAL-\d{3}$"),
 }
-_COMPARISON_PLANS = frozenset({
-    "NewContentVersionVsCurrentUsingContentVersionCompare",
-    "RepeatSingleVersionAnalysis",
-    "NotApplicable",
-})
-_ROLLBACK_CONDITIONS = frozenset({
-    "UnexpectedDirection", "SourceWarningReappears", "DesignObjectiveMiss"
-})
 _ACTIONABLE = frozenset({"Experiment", "BalanceChange", "UXChange", "TelemetryChange"})
 
 
@@ -283,7 +281,7 @@ def validate_response(
         v.issue("COMPARISON_DIRECTION_MISMATCH", "$.comparisonDirectionAcknowledgement", expected_direction)
 
     observations: list[Observation] = []
-    for index, raw_item in enumerate(v.array(top.get("observations"), "$.observations", 10)):
+    for index, raw_item in enumerate(v.array(top.get("observations"), "$.observations", MAX_OBSERVATIONS)):
         path = f"$.observations[{index}]"
         item = v.obj(raw_item, path, {"id", "findingType", "qualitativeStatement", "evidenceIds", "importance"})
         ids = v.evidence_ids(item.get("evidenceIds"), f"{path}.evidenceIds", minimum=1)
@@ -314,7 +312,7 @@ def validate_response(
         ))
 
     interpretations: list[Interpretation] = []
-    for index, raw_item in enumerate(v.array(top.get("interpretations"), "$.interpretations", 5)):
+    for index, raw_item in enumerate(v.array(top.get("interpretations"), "$.interpretations", MAX_RESPONSE_SECTION_ITEMS)):
         path = f"$.interpretations[{index}]"
         item = v.obj(raw_item, path, {"id", "statement", "evidenceIds", "limitationEvidenceIds", "limitationWarningCodes"})
         ids = v.evidence_ids(item.get("evidenceIds"), f"{path}.evidenceIds", minimum=1)
@@ -329,7 +327,7 @@ def validate_response(
         ))
 
     gaps: list[EvidenceGap] = []
-    for index, raw_item in enumerate(v.array(top.get("evidenceGaps"), "$.evidenceGaps", 5)):
+    for index, raw_item in enumerate(v.array(top.get("evidenceGaps"), "$.evidenceGaps", MAX_RESPONSE_SECTION_ITEMS)):
         path = f"$.evidenceGaps[{index}]"
         item = v.obj(raw_item, path, {"id", "question", "whyItMatters", "relatedEvidenceIds", "suggestedAnalysis", "requiresNewTelemetry"})
         suggested = item.get("suggestedAnalysis")
@@ -346,7 +344,7 @@ def validate_response(
     gap_ids = {item.id for item in gaps if item.id}
 
     hypotheses: list[Hypothesis] = []
-    for index, raw_item in enumerate(v.array(top.get("hypotheses"), "$.hypotheses", 5)):
+    for index, raw_item in enumerate(v.array(top.get("hypotheses"), "$.hypotheses", MAX_RESPONSE_SECTION_ITEMS)):
         path = f"$.hypotheses[{index}]"
         item = v.obj(raw_item, path, {
             "id", "statement", "supportingEvidenceIds", "counterEvidenceIds",
@@ -385,7 +383,7 @@ def validate_response(
         ))
 
     changes: list[ChangeCandidate] = []
-    for index, raw_item in enumerate(v.array(top.get("changeCandidates"), "$.changeCandidates", 5)):
+    for index, raw_item in enumerate(v.array(top.get("changeCandidates"), "$.changeCandidates", MAX_RESPONSE_SECTION_ITEMS)):
         path = f"$.changeCandidates[{index}]"
         item = v.obj(raw_item, path, {
             "id", "domain", "target", "actionType", "proposedChange", "rationale",
@@ -502,7 +500,7 @@ def validate_response(
         ))
 
     validations: list[ValidationPlan] = []
-    for index, raw_item in enumerate(v.array(top.get("validationPlans"), "$.validationPlans", 5)):
+    for index, raw_item in enumerate(v.array(top.get("validationPlans"), "$.validationPlans", MAX_RESPONSE_SECTION_ITEMS)):
         path = f"$.validationPlans[{index}]"
         item = v.obj(raw_item, path, {
             "id", "changeCandidateId", "analysesToRerun", "metricsToWatch",
@@ -527,13 +525,13 @@ def validate_response(
             if requirement not in MINIMUM_REQUIREMENTS:
                 v.issue("INVENTED_SAMPLE_REQUIREMENT", f"{path}.minimumEvidenceRequirements", requirement)
         rollback: list[RollbackIndicator] = []
-        for rindex, raw_rollback in enumerate(v.array(item.get("rollbackIndicators"), f"{path}.rollbackIndicators", 10)):
+        for rindex, raw_rollback in enumerate(v.array(item.get("rollbackIndicators"), f"{path}.rollbackIndicators", MAX_ROLLBACK_INDICATORS)):
             rpath = f"{path}.rollbackIndicators[{rindex}]"
             rollback_item = v.obj(raw_rollback, rpath, {"metric", "condition"})
             refs = metric_refs([rollback_item.get("metric")], f"{rpath}.metric", 1)
             if refs:
                 rollback.append(RollbackIndicator(
-                    refs[0], v.enum(rollback_item.get("condition"), f"{rpath}.condition", _ROLLBACK_CONDITIONS)
+                    refs[0], v.enum(rollback_item.get("condition"), f"{rpath}.condition", ROLLBACK_CONDITIONS)
                 ))
         validations.append(ValidationPlan(
             id=v.id(item.get("id"), f"{path}.id", "validation"),
@@ -542,7 +540,7 @@ def validate_response(
             metrics_to_watch=metric_refs(item.get("metricsToWatch"), f"{path}.metricsToWatch"),
             guardrail_metrics=metric_refs(item.get("guardrailMetrics"), f"{path}.guardrailMetrics"),
             minimum_evidence_requirements=requirements,
-            comparison_plan=v.enum(item.get("comparisonPlan"), f"{path}.comparisonPlan", _COMPARISON_PLANS),
+            comparison_plan=v.enum(item.get("comparisonPlan"), f"{path}.comparisonPlan", COMPARISON_PLANS),
             rollback_indicators=tuple(rollback),
         ))
 
@@ -565,7 +563,7 @@ def validate_response(
     def output_refs(
         value: Any, path: str, allowed: set[str], kind: str
     ) -> tuple[str, ...]:
-        refs = v.output_ids(value, path, kind=kind, maximum=3)
+        refs = v.output_ids(value, path, kind=kind, maximum=MAX_EXECUTIVE_SUMMARY_IDS)
         for ref in refs:
             if ref not in allowed:
                 v.issue("UNKNOWN_OUTPUT_REFERENCE", path, ref)

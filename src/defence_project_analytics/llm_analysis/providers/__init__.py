@@ -1,4 +1,4 @@
-"""Provider protocol helpers; no network transport is implemented in C-2 v1."""
+"""Provider implementations for C-2 manual, test, and API workflows."""
 
 from __future__ import annotations
 
@@ -24,3 +24,17 @@ class ScriptedAnalysisProvider:
         ):
             raise ValueError("Scripted provider received an unexpected prompt digest")
         return self.response
+
+
+from defence_project_analytics.llm_analysis.providers.anthropic import (  # noqa: E402
+    DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS,
+    DEFAULT_ANTHROPIC_MODEL,
+    AnthropicAnalysisProvider,
+)
+
+__all__ = [
+    "ScriptedAnalysisProvider",
+    "AnthropicAnalysisProvider",
+    "DEFAULT_ANTHROPIC_MODEL",
+    "DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS",
+]

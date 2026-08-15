@@ -13,6 +13,10 @@ PROMPT_TEMPLATE_VERSION = "1.0.0"
 RESPONSE_CONTRACT_VERSION = "1.0.0"
 DEFAULT_MAX_PROMPT_CHARACTERS = 400_000
 DEFAULT_MAX_RESPONSE_CHARACTERS = 100_000
+MAX_OBSERVATIONS = 10
+MAX_RESPONSE_SECTION_ITEMS = 5
+MAX_EXECUTIVE_SUMMARY_IDS = 3
+MAX_ROLLBACK_INDICATORS = 10
 
 FINDING_TYPES = frozenset({
     "ObservedValue",
@@ -66,6 +70,16 @@ MINIMUM_REQUIREMENTS = frozenset({
     "NoMaterialCoverageMismatch",
     "ObservedInBothVersions",
     "MeetExistingAnalyticsThreshold",
+})
+COMPARISON_PLANS = frozenset({
+    "NewContentVersionVsCurrentUsingContentVersionCompare",
+    "RepeatSingleVersionAnalysis",
+    "NotApplicable",
+})
+ROLLBACK_CONDITIONS = frozenset({
+    "UnexpectedDirection",
+    "SourceWarningReappears",
+    "DesignObjectiveMiss",
 })
 
 
