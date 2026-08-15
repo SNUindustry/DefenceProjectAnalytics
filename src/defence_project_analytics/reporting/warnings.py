@@ -26,6 +26,23 @@ WARNING_PRIORITY = (
 )
 _PRIORITY = {code: index for index, code in enumerate(WARNING_PRIORITY)}
 
+WEAPON_WARNING_PRIORITY = (
+    "NO_ATTEMPTS",
+    "LOW_SAMPLE_ATTEMPTS",
+    "INCOMPLETE_DETAIL_EXCLUDED",
+    "UNASSESSED_LEGACY_DETAIL",
+    "MIXED_CONTENT_DETAIL_EXCLUDED",
+    "UNRESOLVED_RELEASE_ROWS",
+    "HIGH_WEAPON_DETAIL_MISSINGNESS",
+    "MISSING_WEAPON_IDENTITY",
+    "MIXED_WEAPON_STATE",
+    "WEAPON_SAMPLE_TRUNCATED",
+    "LOW_WEAPON_SAMPLE",
+    "LOW_WEAPON_DPS_COVERAGE",
+    "LOW_BOSS_SAMPLE",
+    "OUTCOME_ASSOCIATION_BIASED_SAMPLE",
+)
+
 
 @dataclass(frozen=True, slots=True)
 class WarningThresholds:
@@ -85,3 +102,100 @@ def build_warnings(
     if quality.invalid_death_time_rows:
         add("INVALID_DEATH_TIME", f"{quality.invalid_death_time_rows} deaths have missing or negative timing.")
     return sort_warnings(warnings)
+
+
+@dataclass(frozen=True, slots=True)
+class WeaponThresholds:
+    min_combat_observed_attempts: int = 20
+    min_final_owned_attempts: int = 20
+    min_valid_dps_samples: int = 20
+    min_boss_eligible_segments: int = 10
+    min_outcome_cohort_attempts: int = 20
+    min_detail_coverage: float = 0.80
+    min_dps_coverage: float = 0.50
+    min_notable_clear_rate_difference: float = 0.10
+
+    def __post_init__(self) -> None:
+        counts = (
+            self.min_combat_observed_attempts,
+            self.min_final_owned_attempts,
+            self.min_valid_dps_samples,
+            self.min_boss_eligible_segments,
+            self.min_outcome_cohort_attempts,
+        )
+        if min(counts) < 0:
+            raise ValueError("Weapon count thresholds must be non-negative")
+        for value in (self.min_detail_coverage, self.min_dps_coverage, self.min_notable_clear_rate_difference):
+            if not 0 <= value <= 1:
+                raise ValueError("Weapon ratio thresholds must be between zero and one")
+
+
+def sort_weapon_warnings(warnings: Iterable[ReportWarning]) -> tuple[ReportWarning, ...]:
+    priority = {code: index for index, code in enumerate(WEAPON_WARNING_PRIORITY)}
+    return tuple(sorted(warnings, key=lambda item: (priority.get(item.code, len(priority)), item.code)))
+
+
+UPGRADE_WARNING_PRIORITY = (
+    "NO_ATTEMPTS",
+    "LOW_UPGRADE_EXPOSURE_SAMPLE",
+    "INCOMPLETE_DETAIL_EXCLUDED",
+    "UNASSESSED_LEGACY_DETAIL",
+    "MIXED_CONTENT_DETAIL_EXCLUDED",
+    "TRUNCATED_UPGRADE_EXPOSURES",
+    "UPGRADE_EXPOSURE_OVERFLOW",
+    "MALFORMED_UPGRADE_EXPOSURE",
+    "UPGRADE_SELECTION_COUNT_MISMATCH",
+    "MISSING_CANDIDATE_IDENTITY",
+    "UNRECOGNIZED_UPGRADE_CATEGORY",
+    "UNLINKED_UPGRADE_SELECTION",
+    "SELECTION_WITHOUT_EXPOSURE_MATCH",
+    "MULTIPLE_SELECTIONS_FOR_EXPOSURE",
+    "APPROXIMATE_CHOICE_CONTEXT",
+    "LOW_CANDIDATE_SAMPLE",
+    "LOW_HEAD_TO_HEAD_SAMPLE",
+    "OUTCOME_ASSOCIATION_BIASED_SAMPLE",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class UpgradeThresholds:
+    min_complete_exposures: int = 20
+    min_candidate_exposures: int = 20
+    min_pair_co_exposures: int = 20
+    min_pair_selected: int = 10
+    min_outcome_cohort_attempts: int = 20
+    high_pick_rate: float = 0.70
+    low_pick_rate: float = 0.20
+    notable_pair_preference: float = 0.70
+    notable_clear_rate_difference: float = 0.10
+    max_context_snapshot_lag_seconds: float = 30.0
+    min_detail_coverage: float = 0.80
+
+    def __post_init__(self) -> None:
+        counts = (
+            self.min_complete_exposures,
+            self.min_candidate_exposures,
+            self.min_pair_co_exposures,
+            self.min_pair_selected,
+            self.min_outcome_cohort_attempts,
+        )
+        if min(counts) < 0:
+            raise ValueError("Upgrade count thresholds must be non-negative")
+        ratios = (
+            self.high_pick_rate,
+            self.low_pick_rate,
+            self.notable_pair_preference,
+            self.notable_clear_rate_difference,
+            self.min_detail_coverage,
+        )
+        if any(not 0 <= value <= 1 for value in ratios):
+            raise ValueError("Upgrade ratio thresholds must be between zero and one")
+        if self.low_pick_rate > self.high_pick_rate:
+            raise ValueError("low_pick_rate must not exceed high_pick_rate")
+        if self.max_context_snapshot_lag_seconds < 0:
+            raise ValueError("max_context_snapshot_lag_seconds must be non-negative")
+
+
+def sort_upgrade_warnings(warnings: Iterable[ReportWarning]) -> tuple[ReportWarning, ...]:
+    priority = {code: index for index, code in enumerate(UPGRADE_WARNING_PRIORITY)}
+    return tuple(sorted(warnings, key=lambda item: (priority.get(item.code, len(priority)), item.code)))

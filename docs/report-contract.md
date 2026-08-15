@@ -43,6 +43,28 @@ Stage Difficulty provides:
 - Dead/Clear threat summaries;
 - aggregate selected player-state distributions.
 
+Weapon Performance provides:
+
+- adoption and final ownership by stable weapon family;
+- resume-aware combat contribution with recomputed attempt damage share;
+- valid-sample DPS/uptime and invalid-reason aggregates;
+- BossStarted-scoped boss performance;
+- observational combat-observed and final-owned outcome associations;
+- exact final-state and effective-level distributions.
+
+Upgrade Choice provides:
+
+- reconstructed complete candidate exposures and linked pick rates;
+- candidate-position and presented-count breakdowns;
+- exposure-time snapshot/transition context with a 30-second snapshot limit;
+- canonical unordered co-exposure pairs with third-candidate and unresolved selections explicit;
+- observational selected versus exposed-not-selected final-attempt associations;
+- an explicit partition of exposed-not-selected attempts into alternative-selected and no-selection-only attempts.
+
+Its scope extends the common B-1 scope only for `weaponPerformance` with gameplay cohort bounds and `analysisAsOfUtc`. Existing Stage Overview and Stage Difficulty scope JSON and hashes are unchanged.
+
+`upgradeChoice` uses its own `UpgradeAnalysisScope` with the same gameplay cohort, ingestion, release, and as-of fields. It does not alter the scope JSON or hash of any existing analysis.
+
 ## Markdown
 
 `report.md` is a human/LLM-readable index of scope, sample, quality, outcome, timing, concentration, causes, damage, threat, state, deterministic statistical signals, caveats, and attached tables. Percentages and seconds display at one decimal place. It must not contain tuning judgments or recommendations.
@@ -56,3 +78,31 @@ Signals are emitted only for fixed descriptive thresholds:
 ## Privacy and scope
 
 Generated reports contain aggregates only. They do not store `telemetryPlayerId`, `attemptId`, `runId`, or `uploadId`. Queries use ADC and read-only BigQuery access. The contract does not authorize cloud mutation, raw object access, credential creation, or telemetry upload secrets.
+
+Weapon artifacts may contain stable content identifiers (`weaponFamilyId`, `weaponId`, and `weaponType`) but never runtime weapon `instanceId`. `combatObservedSegments` has observation unit `eligibleGameplaySegment`; it must not be renamed or interpreted as run/attempt count. `combatObservedAttempts` is the separately deduplicated final-attempt metric.
+
+`dpsCoverageAmongCombatObservedInstanceSegments` always has:
+
+```json
+{
+  "count": 2,
+  "denominator": 3,
+  "ratio": 0.6666666666666666
+}
+```
+
+The count is combat-observed instance-segments with at least one valid DPS sample. The denominator is positive-damage combat-observed instance-segments. It does not measure all owned, equipped, or used weapons.
+
+Weapon present/absent results are descriptive associations and `outcomeAssociationIsCausal` is always `false`. Combat-observed cohorts are conditioned on positive applied damage; acquisition timing and survivorship can therefore affect both elapsed-time and outcome differences. Elapsed-time differences are not emitted as deterministic signals.
+
+## Upgrade Choice contract
+
+- Canonical candidate identity is `category + upgradeId`; NewWeapon, UpgradeWeapon, Global, Reward, and Evolution remain distinct.
+- `upgradeSelectionCount` is segment-local in the pinned telemetry source. Completeness compares it only with deduplicated selection rows having the same environment and gameplay-segment key.
+- Pick rate is linked candidate selections divided by complete exposures containing that candidate. A presentation closed without a selection remains in the denominator.
+- Pair rows are canonical unordered co-exposures. Overall share uses every complete co-exposure; conditional preference uses only exposures selecting one of the two pair members.
+- Context is based on exposure time. A preceding player snapshot older than 30 seconds is stale and is not used for player-state values; transition fallback is approximate.
+- `alternativeSelectedAttempts` and `noSelectionOnlyAttempts` are mutually exclusive and sum to `exposedNotSelectedAttempts`. If an attempt has both a no-selection exposure and another exposure selecting an alternative, it belongs to `alternativeSelectedAttempts`.
+- Selection/outcome results set `selectionOutcomeAssociationIsCausal` to `false`. Pick-rate, position, context, pairwise, and outcome differences do not imply a tuning conclusion.
+
+Upgrade artifacts may contain stable candidate, category, upgrade, weapon-family, and grant identifiers. They never contain player, attempt, gameplay-segment, upload, exposure, or runtime instance identifiers.

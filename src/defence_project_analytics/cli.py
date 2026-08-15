@@ -25,6 +25,16 @@ from defence_project_analytics.stage_overview import (
     generate_stage_overview_report,
     get_stage_overview,
 )
+from defence_project_analytics.weapon_performance import (
+    DEFAULT_MAXIMUM_TOTAL_BYTES as WEAPON_DEFAULT_MAXIMUM_TOTAL_BYTES,
+    WeaponPerformanceRequest,
+    generate_weapon_performance_report,
+)
+from defence_project_analytics.upgrade_choice import (
+    DEFAULT_MAXIMUM_TOTAL_BYTES as UPGRADE_DEFAULT_MAXIMUM_TOTAL_BYTES,
+    UpgradeChoiceRequest,
+    generate_upgrade_choice_report,
+)
 
 
 def _json(value: Any) -> None:
@@ -96,6 +106,42 @@ def build_parser() -> argparse.ArgumentParser:
     difficulty.add_argument("--min-unique-players", type=int, default=10)
     difficulty.add_argument("--min-deaths", type=int, default=20)
     difficulty.add_argument("--min-detail-runs", type=int, default=20)
+
+    weapon = subparsers.add_parser("weapon-performance", help="Generate aggregate Weapon Performance report bundle")
+    weapon.add_argument("--environment", required=True, choices=("Production", "Test"))
+    weapon.add_argument("--stage-key", required=True)
+    weapon.add_argument("--content-version", required=True, type=int)
+    weapon.add_argument("--app-version")
+    weapon.add_argument("--release-id")
+    weapon.add_argument("--release-channel")
+    weapon.add_argument("--release-type")
+    weapon.add_argument("--development-build", type=_parse_bool)
+    weapon.add_argument("--segment-ended-start-utc", type=_parse_datetime)
+    weapon.add_argument("--segment-ended-end-utc", type=_parse_datetime)
+    weapon.add_argument("--uploaded-start-utc", type=_parse_datetime)
+    weapon.add_argument("--uploaded-end-utc", type=_parse_datetime)
+    weapon.add_argument("--as-of-utc", type=_parse_datetime)
+    weapon.add_argument("--output-root", type=Path, default=Path("reports/generated"))
+    weapon.add_argument("--overwrite", action="store_true")
+    weapon.add_argument("--maximum-total-bytes", type=int, default=WEAPON_DEFAULT_MAXIMUM_TOTAL_BYTES)
+
+    upgrade = subparsers.add_parser("upgrade-choice", help="Generate aggregate Upgrade Choice report bundle")
+    upgrade.add_argument("--environment", required=True, choices=("Production", "Test"))
+    upgrade.add_argument("--stage-key", required=True)
+    upgrade.add_argument("--content-version", required=True, type=int)
+    upgrade.add_argument("--app-version")
+    upgrade.add_argument("--release-id")
+    upgrade.add_argument("--release-channel")
+    upgrade.add_argument("--release-type")
+    upgrade.add_argument("--development-build", type=_parse_bool)
+    upgrade.add_argument("--segment-ended-start-utc", type=_parse_datetime)
+    upgrade.add_argument("--segment-ended-end-utc", type=_parse_datetime)
+    upgrade.add_argument("--uploaded-start-utc", type=_parse_datetime)
+    upgrade.add_argument("--uploaded-end-utc", type=_parse_datetime)
+    upgrade.add_argument("--as-of-utc", type=_parse_datetime)
+    upgrade.add_argument("--output-root", type=Path, default=Path("reports/generated"))
+    upgrade.add_argument("--overwrite", action="store_true")
+    upgrade.add_argument("--maximum-total-bytes", type=int, default=UPGRADE_DEFAULT_MAXIMUM_TOTAL_BYTES)
     return parser
 
 
@@ -188,6 +234,77 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "dryRunEstimatedBytes": metadata["dryRunEstimatedBytes"],
                 }
             )
+            return 0
+
+        if args.command == "weapon-performance":
+            request = WeaponPerformanceRequest(
+                environment=args.environment,
+                stage_key=args.stage_key,
+                content_version=args.content_version,
+                app_version=args.app_version,
+                release_id=args.release_id,
+                release_channel=args.release_channel,
+                release_type=args.release_type,
+                is_development_build=args.development_build,
+                segment_ended_at_utc_start=args.segment_ended_start_utc,
+                segment_ended_at_utc_end=args.segment_ended_end_utc,
+                uploaded_at_utc_start=args.uploaded_start_utc,
+                uploaded_at_utc_end=args.uploaded_end_utc,
+                analysis_as_of_utc=args.as_of_utc,
+            )
+            path = generate_weapon_performance_report(
+                request,
+                output_root=args.output_root,
+                overwrite=args.overwrite,
+                client=client,
+                config=config,
+                maximum_total_bytes=args.maximum_total_bytes,
+            )
+            metadata = json.loads((path / "metadata.json").read_text(encoding="utf-8"))
+            _json({
+                "reportPath": str(path.resolve()),
+                "scope": metadata["scope"],
+                "weaponFamilyCount": metadata["sample"]["weaponFamilyCount"],
+                "detailEligibleAttempts": metadata["sample"]["detailEligibleAttempts"],
+                "warningCodes": [warning["code"] for warning in metadata["warnings"]],
+                "estimatedBytes": metadata["dryRunEstimatedBytes"],
+            })
+            return 0
+
+        if args.command == "upgrade-choice":
+            request = UpgradeChoiceRequest(
+                environment=args.environment,
+                stage_key=args.stage_key,
+                content_version=args.content_version,
+                app_version=args.app_version,
+                release_id=args.release_id,
+                release_channel=args.release_channel,
+                release_type=args.release_type,
+                is_development_build=args.development_build,
+                segment_ended_at_utc_start=args.segment_ended_start_utc,
+                segment_ended_at_utc_end=args.segment_ended_end_utc,
+                uploaded_at_utc_start=args.uploaded_start_utc,
+                uploaded_at_utc_end=args.uploaded_end_utc,
+                analysis_as_of_utc=args.as_of_utc,
+            )
+            path = generate_upgrade_choice_report(
+                request,
+                output_root=args.output_root,
+                overwrite=args.overwrite,
+                client=client,
+                config=config,
+                maximum_total_bytes=args.maximum_total_bytes,
+            )
+            metadata = json.loads((path / "metadata.json").read_text(encoding="utf-8"))
+            _json({
+                "reportPath": str(path.resolve()),
+                "scope": metadata["scope"],
+                "candidateCount": metadata["sample"]["candidateCount"],
+                "completeExposureCount": metadata["sample"]["completeExposures"],
+                "fullyChoiceCoveredAttempts": metadata["sample"]["fullyChoiceCoveredAttempts"],
+                "warningCodes": [warning["code"] for warning in metadata["warnings"]],
+                "estimatedBytes": metadata["dryRunEstimatedBytes"],
+            })
             return 0
     except AnalyticsFoundationError as exc:
         print(str(exc), file=sys.stderr)

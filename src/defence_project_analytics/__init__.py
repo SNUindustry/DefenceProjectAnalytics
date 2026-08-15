@@ -20,6 +20,18 @@ from defence_project_analytics.stage_difficulty import (
     analyze_stage_difficulty,
     generate_stage_difficulty_report,
 )
+from defence_project_analytics.weapon_performance import (
+    WeaponPerformanceAnalysis,
+    WeaponPerformanceRequest,
+    analyze_weapon_performance,
+    generate_weapon_performance_report,
+)
+from defence_project_analytics.upgrade_choice import (
+    UpgradeChoiceAnalysis,
+    UpgradeChoiceRequest,
+    analyze_upgrade_choice,
+    generate_upgrade_choice_report,
+)
 
 __all__ = [
     "AnalyticsConfig",
@@ -33,6 +45,14 @@ __all__ = [
     "get_stage_overview",
     "generate_stage_difficulty_report",
     "generate_stage_overview_report",
+    "WeaponPerformanceAnalysis",
+    "WeaponPerformanceRequest",
+    "analyze_weapon_performance",
+    "generate_weapon_performance_report",
+    "UpgradeChoiceAnalysis",
+    "UpgradeChoiceRequest",
+    "analyze_upgrade_choice",
+    "generate_upgrade_choice_report",
     "query_dataframe",
     "table_exists",
     "view_exists",
