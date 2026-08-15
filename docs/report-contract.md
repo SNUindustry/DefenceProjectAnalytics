@@ -176,3 +176,9 @@ Comparison CSV files are long-form aggregate tables for Stage, Weapon, Upgrade, 
 Post-Run, plus comparison data quality. Stable content identifiers are allowed, but raw player,
 attempt, run, event, operation, batch, upload, presentation, exposure, or runtime instance IDs are
 forbidden. The generator emits only descriptive direction and never assigns a tuning judgment.
+
+## Analysis Brief consumer
+
+Phase C-1 consumes these `1.0.0` aggregate bundles without querying BigQuery or changing their
+schema. Its Evidence ID, source-integrity, selection, and four-file output contract is documented in
+[analysis-brief-contract.md](analysis-brief-contract.md).

@@ -22,6 +22,10 @@ from defence_project_analytics.comparison import (
 )
 from defence_project_analytics.config import AnalyticsConfig
 from defence_project_analytics.models import QueryParameterValue, QuerySpec
+from defence_project_analytics.metric_registry import (
+    COMPARISON_SUMMARY_SPECS,
+    COMPARISON_TABLE_SPECS,
+)
 from defence_project_analytics.post_run_behavior import (
     PostRunBehaviorRequest,
     _assemble_bundle as _assemble_post_run,
@@ -803,7 +807,7 @@ def _table_comparison_rows(
     thresholds: ComparisonThresholds,
 ) -> list[ComparisonRow]:
     rows: list[ComparisonRow] = []
-    for spec in TABLE_COMPARE_SPECS.get(domain, ()):
+    for spec in COMPARISON_TABLE_SPECS.get(domain, ()):
         left = _frame_rows(baseline.tables.get(spec.filename), spec.keys)
         right = _frame_rows(candidate.tables.get(spec.filename), spec.keys)
         for key in sorted(set(left).union(right)):
@@ -857,7 +861,7 @@ def _domain_comparison(
             _sample(baseline, domain), _sample(candidate, domain), (), (),
         )
     rows: list[ComparisonRow] = []
-    for family, metric, path, kind, unit in SUMMARY_SPECS[domain]:
+    for family, metric, path, kind, unit in COMPARISON_SUMMARY_SPECS[domain]:
         left, right = _value(baseline.metrics, path), _value(candidate.metrics, path)
         if kind == "ratio":
             rows.append(ratio_comparison_row(

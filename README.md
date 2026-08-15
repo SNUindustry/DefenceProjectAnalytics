@@ -321,7 +321,71 @@ generated_path = generate_content_version_comparison_report(request)
 The output path is
 `reports/generated/content-version-compare/<environment>__<stage-or-all-stages>__cv-<baseline>-vs-cv-<candidate>__<hash8>/`.
 
-## 11. Population, resume, and completeness
+## 11. Local Analysis Brief
+
+Phase C-1 compiles existing aggregate report bundles entirely on the local filesystem. It does not
+authenticate, query BigQuery, execute a source analyzer, or select a latest report automatically.
+
+```powershell
+defence-analytics analysis-brief `
+  --mode single-version `
+  --source-report reports/generated/progression-next-run/<scope-id> `
+  --source-report reports/generated/post-run-behavior/<scope-id>
+
+defence-analytics analysis-brief `
+  --mode content-version-compare `
+  --source-report reports/generated/content-version-compare/<scope-id>
+```
+
+The compiler validates bundle versions, scope compatibility, required CSV headers, finite values,
+privacy fields, and source hashes. It writes only `brief.md`, `brief.json`, `evidence.json`, and
+`manifest.json` below `reports/generated/analysis-brief/<scope-id>/`.
+
+Every selected fact has a deterministic Evidence ID and portable aggregate provenance. Canonical
+identities are checked for duplicates before short hashes are generated. Snapshot guarantee-mode
+differences are separate from missing or materially different cutoffs. Each included domain reserves
+three observed core facts by default, including Limited facts with their sample and warnings.
+Defaults are 48,000 Markdown characters, 120 total evidence items, and 30 per domain; evidence is
+omitted only as complete items and truncation is explicit.
+
+For a later LLM step, provide `brief.md` and `evidence.json`; `manifest.json` is for integrity and
+reproducibility checks. C-1 itself produces no interpretation or tuning decision. See
+[docs/analysis-brief-contract.md](docs/analysis-brief-contract.md).
+
+## 11.1 Evidence-Grounded LLM Analysis
+
+Phase C-2 creates a provider-neutral prompt from one C-1 bundle and validates an external JSON
+response locally. It does not call an LLM API, load provider credentials, query BigQuery, or rerun a
+source analysis.
+
+```powershell
+defence-analytics analysis-prompt `
+  --source-brief reports/generated/analysis-brief/<scope-id> `
+  --analysis-objective "선택적 설계 목표"
+```
+
+Pass the generated `prompt.md` to an external LLM and save its JSON-only response outside the
+request bundle. Then validate and render it:
+
+```powershell
+defence-analytics analysis-validate `
+  --analysis-request reports/generated/analysis-requests/<request-id> `
+  --response analysis-response.json
+```
+
+The final bundle contains `analysis.json`, deterministic `analysis.md`, the exact `prompt.md`, and
+`manifest.json` under `reports/generated/llm-analysis/<execution-id>/`. Invalid schema, unknown
+Evidence IDs, unsupported numeric or causal claims, and missing validation plans fail without a
+final artifact or automatic repair.
+
+Observation and executive-summary numbers are always rendered from C-1 `evidence.json`; the LLM
+selects Evidence IDs and supplies qualitative prose only. `NotIdentifiedInSuppliedBrief` means no
+counter evidence was identified in that selected brief, not that none exists. The highest
+actionability is `HumanReviewCandidate`, which is a human-reviewed experiment candidate and never
+authorizes a production change or deployment. See
+[docs/llm-analysis-contract.md](docs/llm-analysis-contract.md).
+
+## 12. Population, resume, and completeness
 
 - Final attempts come only from `telemetry_attempt_outcomes_v1`; raw `telemetry_run_summary` rows are not counted as attempts.
 - Clear rate is `Clear / (Clear + Dead)`; Abandon is reported separately.
@@ -333,11 +397,11 @@ The output path is
 - Incoming damage and threat include all eligible resume segments once. Final lethal cause and player state use only the final Dead run.
 - Lethal-hit events can precede revival and are never treated as final death counts.
 
-## 12. Warning interpretation
+## 13. Warning interpretation
 
 Warnings do not fail report generation. Stage Difficulty keeps its existing thresholds. Weapon reports identify detail and DPS coverage issues. Upgrade reports identify incomplete/truncated presentations, same-segment selection-count mismatches, unlinked selections, approximate context, low candidate/pair samples, and observational association bias. Progression reports distinguish low event/episode/pair samples, unbounded activity-only events, missing immediate context, open/resume exclusions, right-censoring, cross-content exclusions, and multi-progression confounding. Treat affected metrics as descriptive aggregates with the exact denominator recorded in metadata and CSV.
 
-## 13. LLM handoff
+## 14. LLM handoff
 
 The report contract is documented in [docs/report-contract.md](docs/report-contract.md). The recommended files to provide to an LLM are:
 

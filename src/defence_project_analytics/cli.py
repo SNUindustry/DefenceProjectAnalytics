@@ -50,6 +50,17 @@ from defence_project_analytics.content_version_comparison import (
     ContentVersionCompareRequest,
     generate_content_version_comparison_report,
 )
+from defence_project_analytics.analysis_brief import (
+    AnalysisBriefRequest,
+    generate_analysis_brief,
+)
+from defence_project_analytics.brief.models import EvidenceSelectionPolicy
+from defence_project_analytics.llm_analysis import (
+    AnalysisPromptRequest,
+    AnalysisResponseValidationError,
+    generate_analysis_prompt,
+    generate_validated_analysis,
+)
 
 
 def _json(value: Any) -> None:
@@ -236,11 +247,159 @@ def build_parser() -> argparse.ArgumentParser:
     comparison.add_argument(
         "--maximum-total-bytes", type=int, default=COMPARISON_DEFAULT_MAXIMUM_TOTAL_BYTES
     )
+    brief = subparsers.add_parser(
+        "analysis-brief", help="Compile local aggregate reports into an evidence brief"
+    )
+    brief.add_argument(
+        "--mode",
+        required=True,
+        choices=("single-version", "content-version-compare"),
+    )
+    brief.add_argument(
+        "--source-report", type=Path, action="append", required=True,
+        help="Explicit generated report bundle path; may be repeated in single mode",
+    )
+    brief.add_argument("--output-root", type=Path, default=Path("reports/generated"))
+    brief.add_argument("--overwrite", action="store_true")
+    brief.add_argument("--max-brief-characters", type=int, default=48_000)
+    brief.add_argument("--max-evidence-items", type=int, default=120)
+    brief.add_argument("--max-evidence-items-per-domain", type=int, default=30)
+    brief.add_argument("--core-evidence-minimum-per-domain", type=int, default=3)
+    analysis_prompt = subparsers.add_parser(
+        "analysis-prompt", help="Create a local provider-neutral C-2 prompt package"
+    )
+    analysis_prompt.add_argument("--source-brief", type=Path, required=True)
+    analysis_prompt.add_argument("--analysis-objective")
+    analysis_prompt.add_argument("--output-language", choices=("ko", "en"), default="ko")
+    analysis_prompt.add_argument("--max-prompt-characters", type=int, default=400_000)
+    analysis_prompt.add_argument("--output-root", type=Path, default=Path("reports/generated"))
+    analysis_prompt.add_argument("--overwrite", action="store_true")
+    analysis_validate = subparsers.add_parser(
+        "analysis-validate", help="Validate an external C-2 JSON response and render a report"
+    )
+    analysis_validate.add_argument("--analysis-request", type=Path, required=True)
+    analysis_validate.add_argument("--response", type=Path, required=True)
+    analysis_validate.add_argument(
+        "--source-brief", type=Path,
+        help="Required only when the request has no workspace-relative source path",
+    )
+    analysis_validate.add_argument("--provider-name", default="external")
+    analysis_validate.add_argument("--model-name")
+    analysis_validate.add_argument("--output-root", type=Path, default=Path("reports/generated"))
+    analysis_validate.add_argument("--overwrite", action="store_true")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    # C-2 local commands run before any ADC or BigQuery client creation.
+    if args.command == "analysis-prompt":
+        try:
+            path = generate_analysis_prompt(
+                AnalysisPromptRequest(
+                    source_brief_path=args.source_brief,
+                    analysis_objective=args.analysis_objective,
+                    output_language=args.output_language,
+                    max_prompt_characters=args.max_prompt_characters,
+                ),
+                output_root=args.output_root,
+                overwrite=args.overwrite,
+            )
+            manifest = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
+            _json({
+                "requestPath": str(path.resolve()),
+                "requestId": manifest["requestId"],
+                "sourceBriefIdentity": manifest["sourceBriefIdentity"],
+                "promptDigest": manifest["promptDigest"],
+                "promptCharacterCount": manifest["promptCharacterCount"],
+                "evidenceCount": manifest["evidenceCount"],
+                "providerCalls": 0,
+                "estimatedBytes": 0,
+            })
+            return 0
+        except Exception as exc:
+            print(f"Analysis prompt command failed: {exc}", file=sys.stderr)
+            return 1
+    if args.command == "analysis-validate":
+        try:
+            path = generate_validated_analysis(
+                analysis_request_path=args.analysis_request,
+                response=args.response,
+                source_brief_path=args.source_brief,
+                output_root=args.output_root,
+                provider_name=args.provider_name,
+                model_name=args.model_name,
+                overwrite=args.overwrite,
+            )
+            analysis = json.loads((path / "analysis.json").read_text(encoding="utf-8"))
+            manifest = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
+            _json({
+                "reportPath": str(path.resolve()),
+                "analysisExecutionId": manifest["analysisExecutionId"],
+                "overallAssessment": analysis["overallAssessment"],
+                "observationCount": len(analysis["observations"]),
+                "hypothesisCount": len(analysis["hypotheses"]),
+                "changeCandidateCount": len(analysis["changeCandidates"]),
+                "validationStatus": manifest["validationStatus"],
+                "providerCalls": manifest["providerCallCount"],
+                "estimatedBytes": 0,
+            })
+            return 0
+        except AnalysisResponseValidationError as exc:
+            print(json.dumps({"validationStatus": "Invalid", "issues": exc.issues}, ensure_ascii=False, indent=2), file=sys.stderr)
+            return 1
+        except Exception as exc:
+            print(f"Analysis validation command failed: {exc}", file=sys.stderr)
+            return 1
+    # C-1 is deliberately handled before client creation: this command must not
+    # load ADC, contact BigQuery, or execute a source analyzer.
+    if args.command == "analysis-brief":
+        try:
+            request = AnalysisBriefRequest(
+                mode=args.mode,
+                source_report_paths=tuple(args.source_report),
+                selection_policy=EvidenceSelectionPolicy(
+                    max_brief_characters=args.max_brief_characters,
+                    max_evidence_items=args.max_evidence_items,
+                    max_evidence_items_per_domain=args.max_evidence_items_per_domain,
+                    core_evidence_minimum_per_domain=args.core_evidence_minimum_per_domain,
+                ),
+            )
+            path = generate_analysis_brief(
+                request,
+                output_root=args.output_root,
+                overwrite=args.overwrite,
+            )
+            brief_payload = json.loads((path / "brief.json").read_text(encoding="utf-8"))
+            manifest = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
+            summary = brief_payload["selectionSummary"]
+            scope = brief_payload["scope"]
+            included = list(scope["domains"])
+            all_domains = {
+                "stageDifficulty", "weaponPerformance", "upgradeChoice",
+                "progressionNextRun", "postRunBehavior",
+            }
+            _json({
+                "reportPath": str(path.resolve()),
+                "mode": brief_payload["mode"],
+                "scope": scope,
+                "overallStatus": brief_payload["overallStatus"],
+                "domainsIncluded": included,
+                "domainsMissing": sorted(all_domains.difference(included)),
+                "warningCodes": [
+                    item["code"] for item in brief_payload["criticalWarnings"]
+                ],
+                "selectedEvidenceCount": summary["selectedEvidenceCount"],
+                "omittedEvidenceCount": summary["omittedEvidenceCount"],
+                "coreSelectedByDomain": summary["coreSelectedByDomain"],
+                "truncated": summary["truncated"],
+                "briefCharacterCount": summary["briefCharacterCount"],
+                "estimatedBytes": manifest["bigQueryEstimatedBytes"],
+            })
+            return 0
+        except Exception as exc:
+            print(f"Analysis Brief command failed: {exc}", file=sys.stderr)
+            return 1
     config = AnalyticsConfig(args.project, args.dataset, args.location)
     try:
         client = get_client(config)

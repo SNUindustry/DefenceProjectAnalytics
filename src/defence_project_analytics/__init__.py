@@ -51,6 +51,36 @@ from defence_project_analytics.content_version_comparison import (
     generate_content_version_comparison_report,
 )
 from defence_project_analytics.reporting.models import ContentVersionComparisonAnalysis
+from defence_project_analytics.analysis_brief import (
+    AnalysisBrief,
+    AnalysisBriefRequest,
+    build_analysis_brief,
+    generate_analysis_brief,
+)
+from defence_project_analytics.brief.models import EvidenceSelectionPolicy
+from defence_project_analytics.brief.errors import (
+    AnalysisBriefError,
+    DuplicateCanonicalEvidenceIdentityError,
+    EvidenceHashCollisionError,
+    SourceBundleMutationError,
+)
+from defence_project_analytics.llm_analysis import (
+    AnalysisPromptPackage,
+    AnalysisPromptRequest,
+    AnalysisProvider,
+    AnalysisResponseValidationError,
+    LlmAnalysisError,
+    PromptContextTooLargeError,
+    ScriptedAnalysisProvider,
+    SourceBriefMutationError,
+    SourceBriefValidationError,
+    ValidatedAnalysis,
+    build_analysis_prompt,
+    generate_analysis_prompt,
+    generate_validated_analysis,
+    run_analysis_with_provider,
+    validate_analysis_response,
+)
 
 __all__ = [
     "AnalyticsConfig",
@@ -85,6 +115,30 @@ __all__ = [
     "analyze_content_version_comparison",
     "compare_content_version_snapshots",
     "generate_content_version_comparison_report",
+    "AnalysisBrief",
+    "AnalysisBriefRequest",
+    "build_analysis_brief",
+    "generate_analysis_brief",
+    "EvidenceSelectionPolicy",
+    "AnalysisBriefError",
+    "DuplicateCanonicalEvidenceIdentityError",
+    "EvidenceHashCollisionError",
+    "SourceBundleMutationError",
+    "AnalysisPromptPackage",
+    "AnalysisPromptRequest",
+    "AnalysisProvider",
+    "ValidatedAnalysis",
+    "ScriptedAnalysisProvider",
+    "LlmAnalysisError",
+    "SourceBriefValidationError",
+    "SourceBriefMutationError",
+    "PromptContextTooLargeError",
+    "AnalysisResponseValidationError",
+    "build_analysis_prompt",
+    "generate_analysis_prompt",
+    "validate_analysis_response",
+    "generate_validated_analysis",
+    "run_analysis_with_provider",
     "query_dataframe",
     "table_exists",
     "view_exists",
