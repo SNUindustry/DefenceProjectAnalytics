@@ -32,6 +32,25 @@ from defence_project_analytics.upgrade_choice import (
     analyze_upgrade_choice,
     generate_upgrade_choice_report,
 )
+from defence_project_analytics.progression_next_run import (
+    ProgressionNextRunAnalysis,
+    ProgressionNextRunRequest,
+    analyze_progression_next_run,
+    generate_progression_next_run_report,
+)
+from defence_project_analytics.post_run_behavior import (
+    PostRunBehaviorAnalysis,
+    PostRunBehaviorRequest,
+    analyze_post_run_behavior,
+    generate_post_run_behavior_report,
+)
+from defence_project_analytics.content_version_comparison import (
+    ContentVersionCompareRequest,
+    analyze_content_version_comparison,
+    compare_content_version_snapshots,
+    generate_content_version_comparison_report,
+)
+from defence_project_analytics.reporting.models import ContentVersionComparisonAnalysis
 
 __all__ = [
     "AnalyticsConfig",
@@ -53,6 +72,19 @@ __all__ = [
     "UpgradeChoiceRequest",
     "analyze_upgrade_choice",
     "generate_upgrade_choice_report",
+    "ProgressionNextRunAnalysis",
+    "ProgressionNextRunRequest",
+    "analyze_progression_next_run",
+    "generate_progression_next_run_report",
+    "PostRunBehaviorAnalysis",
+    "PostRunBehaviorRequest",
+    "analyze_post_run_behavior",
+    "generate_post_run_behavior_report",
+    "ContentVersionComparisonAnalysis",
+    "ContentVersionCompareRequest",
+    "analyze_content_version_comparison",
+    "compare_content_version_snapshots",
+    "generate_content_version_comparison_report",
     "query_dataframe",
     "table_exists",
     "view_exists",

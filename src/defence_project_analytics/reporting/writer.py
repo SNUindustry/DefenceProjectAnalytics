@@ -13,18 +13,32 @@ from typing import Any, Mapping
 
 import pandas as pd
 
-from defence_project_analytics.reporting.models import AnalysisScope, ReportBundle
+from defence_project_analytics.reporting.models import (
+    AnalysisScope,
+    ContentVersionComparisonScope,
+    PostRunAnalysisScope,
+    ProgressionAnalysisScope,
+    ReportBundle,
+)
 from defence_project_analytics.reporting.renderers import assert_factual_markdown, render_csv, render_json, to_external
 
 
 _SLUG = re.compile(r"[^a-z0-9]+")
 
 
-def canonical_scope_json(scope: AnalysisScope) -> str:
+ReportScope = (
+    AnalysisScope
+    | ProgressionAnalysisScope
+    | PostRunAnalysisScope
+    | ContentVersionComparisonScope
+)
+
+
+def canonical_scope_json(scope: ReportScope) -> str:
     return json.dumps(to_external(scope), ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
 
 
-def scope_hash(scope: AnalysisScope) -> str:
+def scope_hash(scope: ReportScope) -> str:
     return hashlib.sha256(canonical_scope_json(scope).encode("utf-8")).hexdigest()[:8]
 
 
@@ -33,12 +47,19 @@ def stage_slug(stage_key: str) -> str:
     return value or "stage"
 
 
-def scope_id(scope: AnalysisScope) -> str:
+def scope_id(scope: ReportScope) -> str:
     environment = re.sub(r"[^A-Za-z0-9]+", "-", scope.environment).strip("-")
-    return f"{environment}__{stage_slug(scope.stage_key)}__cv-{scope.content_version}__{scope_hash(scope)}"
+    stage_key = getattr(scope, "stage_key", None)
+    scope_stage = stage_slug(stage_key) if stage_key is not None else "all-stages"
+    if isinstance(scope, ContentVersionComparisonScope):
+        return (
+            f"{environment}__{scope_stage}__cv-{scope.baseline_content_version}"
+            f"-vs-cv-{scope.candidate_content_version}__{scope_hash(scope)}"
+        )
+    return f"{environment}__{scope_stage}__cv-{scope.content_version}__{scope_hash(scope)}"
 
 
-def report_path(output_root: Path, analysis_type: str, scope: AnalysisScope) -> Path:
+def report_path(output_root: Path, analysis_type: str, scope: ReportScope) -> Path:
     kebab = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "-", analysis_type)
     safe_analysis = _SLUG.sub("-", kebab.casefold()).strip("-")
     if not safe_analysis:

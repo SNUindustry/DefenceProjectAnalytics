@@ -156,6 +156,73 @@ UPGRADE_WARNING_PRIORITY = (
     "OUTCOME_ASSOCIATION_BIASED_SAMPLE",
 )
 
+PROGRESSION_WARNING_PRIORITY = (
+    "NO_PROGRESSION_EVENTS",
+    "LOW_PROGRESSION_SAMPLE",
+    "LOW_PROGRESSION_EPISODE_SAMPLE",
+    "MISSING_PROGRESSION_PLAYER_IDENTITY",
+    "MISSING_PROGRESSION_TARGET_IDENTITY",
+    "UNRECOGNIZED_PROGRESSION_KIND",
+    "INVALID_PROGRESSION_TRANSACTION_LINK",
+    "UNEXPECTED_STANDALONE_PROGRESSION",
+    "UNBOUNDED_PROGRESSION_EPISODE_EXCLUDED",
+    "PREVIOUS_RUN_CONTEXT_MISSING",
+    "OPEN_ATTEMPT_PAIR_EXCLUDED",
+    "RESUME_CONTINUATION_EXCLUDED",
+    "RIGHT_CENSORED_PROGRESSION",
+    "NEXT_RUN_WITHIN_WINDOW_MISSING",
+    "CROSS_CONTENT_PAIR_EXCLUDED",
+    "INVALID_PROGRESSION_TIMING",
+    "MULTI_PROGRESSION_CONFOUNDING",
+    "LOW_NEXT_RUN_SAMPLE",
+    "LOW_PAIRED_RUN_SAMPLE",
+)
+
+POST_RUN_WARNING_PRIORITY = (
+    "NO_POST_RUN_WINDOWS",
+    "LOW_POST_RUN_SAMPLE",
+    "MISSING_POST_RUN_PLAYER_IDENTITY",
+    "RIGHT_CENSORED_POST_RUN_WINDOW",
+    "BEST_EFFORT_ACTIVITY_ABSENCE",
+    "FEEDBACK_LINK_MISMATCH",
+    "CROSS_CONTENT_POST_RUN_ACTION",
+    "CROSS_RELEASE_POST_RUN_ACTION",
+    "UNRECOGNIZED_POST_RUN_ACTION",
+    "AMBIGUOUS_POST_RUN_ACTION_ORDER",
+    "OFFER_SELECTION_WITHOUT_EXPOSURE",
+    "COMMERCE_ATTEMPT_WITHOUT_SHOP_SELECTION",
+    "TRANSACTION_ATTEMPT_WITHOUT_RESULT",
+    "TRANSACTION_RESULT_WITHOUT_OBSERVED_ATTEMPT",
+    "FUN_FEEDBACK_REWARD_EXCLUDED_FROM_COMMERCE",
+    "PROGRESSION_TRANSACTION_EXCLUDED_FROM_COMMERCE",
+    "LOW_FEEDBACK_SAMPLE",
+    "LOW_COMMERCE_SAMPLE",
+    "LOW_PROGRESSION_SAMPLE",
+    "LOW_NEXT_RUN_SAMPLE",
+    "NEXT_RUN_OUTCOME_PENDING",
+)
+
+COMPARISON_WARNING_PRIORITY = (
+    "NO_COMPARABLE_DOMAINS",
+    "LOW_BASELINE_SAMPLE",
+    "LOW_CANDIDATE_SAMPLE",
+    "BASELINE_VALUE_MISSING",
+    "CANDIDATE_VALUE_MISSING",
+    "BASELINE_DOMAIN_UNAVAILABLE",
+    "CANDIDATE_DOMAIN_UNAVAILABLE",
+    "INCOMPATIBLE_REPORT_CONTRACT",
+    "INCOMPATIBLE_ANALYSIS_VERSION",
+    "INCOMPATIBLE_METRIC_DEFINITION",
+    "INCOMPATIBLE_OBSERVATION_UNIT",
+    "INCOMPATIBLE_WINDOW_DEFINITION",
+    "MATERIAL_SAMPLE_IMBALANCE",
+    "MATERIAL_COVERAGE_DIFFERENCE",
+    "BASELINE_SOURCE_WARNING",
+    "CANDIDATE_SOURCE_WARNING",
+    "COHORT_TIME_RANGE_DIFFERENCE",
+    "CROSS_RELEASE_IDENTITY_DIFFERENCE",
+)
+
 
 @dataclass(frozen=True, slots=True)
 class UpgradeThresholds:
@@ -194,6 +261,107 @@ class UpgradeThresholds:
             raise ValueError("low_pick_rate must not exceed high_pick_rate")
         if self.max_context_snapshot_lag_seconds < 0:
             raise ValueError("max_context_snapshot_lag_seconds must be non-negative")
+
+
+@dataclass(frozen=True, slots=True)
+class ProgressionThresholds:
+    progression_events: int = 20
+    bounded_episodes: int = 20
+    mature_episodes: int = 20
+    same_stage_paired_episodes: int = 20
+    kind_specific_episodes: int = 20
+
+    def __post_init__(self) -> None:
+        values = (
+            self.progression_events,
+            self.bounded_episodes,
+            self.mature_episodes,
+            self.same_stage_paired_episodes,
+            self.kind_specific_episodes,
+        )
+        if min(values) < 0:
+            raise ValueError("Progression thresholds must be non-negative")
+
+
+@dataclass(frozen=True, slots=True)
+class PostRunThresholds:
+    anchor_final_runs: int = 30
+    mature_windows: int = 30
+    feedback_responses: int = 20
+    shop_presented_windows: int = 20
+    offer_selected_windows: int = 20
+    observed_commerce_attempts: int = 20
+    progression_windows: int = 20
+    next_run_linked_windows: int = 20
+    signal_denominator: int = 20
+    signal_ratio: float = 0.50
+    cohort_difference_denominator: int = 20
+    cohort_difference_ratio: float = 0.10
+
+    def __post_init__(self) -> None:
+        counts = (
+            self.anchor_final_runs,
+            self.mature_windows,
+            self.feedback_responses,
+            self.shop_presented_windows,
+            self.offer_selected_windows,
+            self.observed_commerce_attempts,
+            self.progression_windows,
+            self.next_run_linked_windows,
+            self.signal_denominator,
+            self.cohort_difference_denominator,
+        )
+        if min(counts) < 0:
+            raise ValueError("Post-run count thresholds must be non-negative")
+        if not 0 <= self.signal_ratio <= 1 or not 0 <= self.cohort_difference_ratio <= 1:
+            raise ValueError("Post-run ratio thresholds must be between zero and one")
+
+
+@dataclass(frozen=True, slots=True)
+class ComparisonThresholds:
+    min_stage_final_attempts: int = 30
+    min_weapon_detail_attempts: int = 20
+    min_upgrade_complete_exposures: int = 20
+    min_progression_mature_episodes: int = 20
+    min_post_run_mature_windows: int = 30
+    min_entity_denominator: int = 20
+    material_sample_imbalance_ratio: float = 5.0
+    material_coverage_difference: float = 0.20
+    notable_percentage_point_delta: float = 10.0
+    numerical_tolerance: float = 1e-12
+
+    def __post_init__(self) -> None:
+        counts = (
+            self.min_stage_final_attempts,
+            self.min_weapon_detail_attempts,
+            self.min_upgrade_complete_exposures,
+            self.min_progression_mature_episodes,
+            self.min_post_run_mature_windows,
+            self.min_entity_denominator,
+        )
+        if min(counts) < 0:
+            raise ValueError("Comparison count thresholds must be non-negative")
+        if self.material_sample_imbalance_ratio < 1:
+            raise ValueError("material_sample_imbalance_ratio must be at least one")
+        if not 0 <= self.material_coverage_difference <= 1:
+            raise ValueError("material_coverage_difference must be between zero and one")
+        if self.notable_percentage_point_delta < 0 or self.numerical_tolerance < 0:
+            raise ValueError("Comparison delta thresholds must be non-negative")
+
+
+def sort_comparison_codes(codes: Iterable[str]) -> tuple[str, ...]:
+    priority = {code: index for index, code in enumerate(COMPARISON_WARNING_PRIORITY)}
+    return tuple(sorted(set(codes), key=lambda code: (priority.get(code, len(priority)), code)))
+
+
+def sort_progression_warnings(warnings: Iterable[ReportWarning]) -> tuple[ReportWarning, ...]:
+    priority = {code: index for index, code in enumerate(PROGRESSION_WARNING_PRIORITY)}
+    return tuple(sorted(warnings, key=lambda item: (priority.get(item.code, len(priority)), item.code)))
+
+
+def sort_post_run_warnings(warnings: Iterable[ReportWarning]) -> tuple[ReportWarning, ...]:
+    priority = {code: index for index, code in enumerate(POST_RUN_WARNING_PRIORITY)}
+    return tuple(sorted(warnings, key=lambda item: (priority.get(item.code, len(priority)), item.code)))
 
 
 def sort_upgrade_warnings(warnings: Iterable[ReportWarning]) -> tuple[ReportWarning, ...]:

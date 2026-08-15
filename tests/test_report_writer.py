@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from defence_project_analytics.reporting.models import (
-    AnalysisScope, DataQuality, MetricRatio, ReportBundle, ReportDefinitions,
+    AnalysisScope, DataQuality, MetricRatio, ProgressionAnalysisScope, ReportBundle, ReportDefinitions,
     ReportMetadata, SampleSummary,
 )
 from defence_project_analytics.reporting.renderers import render_csv
@@ -28,6 +28,16 @@ def test_scope_path_and_hash_are_deterministic() -> None:
     assert scope_id(scope) == f"Test__stage-one__cv-2__{scope_hash(scope)}"
     assert len(scope_hash(scope)) == 8
     assert scope_hash(scope) != scope_hash(AnalysisScope("Test", "Stage One", 2, release_id="r2"))
+
+
+def test_progression_scope_uses_all_stages_without_changing_existing_hash() -> None:
+    existing = AnalysisScope("Test", "Stage One", 2, release_id="r1")
+    assert scope_hash(existing) == scope_hash(AnalysisScope("Test", "Stage One", 2, release_id="r1"))
+    progression = ProgressionAnalysisScope(
+        environment="Test", content_version=4,
+        analysis_as_of_utc=datetime(2026, 8, 15, tzinfo=timezone.utc),
+    )
+    assert scope_id(progression).startswith("Test__all-stages__cv-4__")
 
 
 def test_collision_refusal_and_safe_overwrite(tmp_path) -> None:

@@ -35,6 +35,21 @@ from defence_project_analytics.upgrade_choice import (
     UpgradeChoiceRequest,
     generate_upgrade_choice_report,
 )
+from defence_project_analytics.progression_next_run import (
+    DEFAULT_MAXIMUM_TOTAL_BYTES as PROGRESSION_DEFAULT_MAXIMUM_TOTAL_BYTES,
+    ProgressionNextRunRequest,
+    generate_progression_next_run_report,
+)
+from defence_project_analytics.post_run_behavior import (
+    DEFAULT_MAXIMUM_TOTAL_BYTES as POST_RUN_DEFAULT_MAXIMUM_TOTAL_BYTES,
+    PostRunBehaviorRequest,
+    generate_post_run_behavior_report,
+)
+from defence_project_analytics.content_version_comparison import (
+    DEFAULT_MAXIMUM_TOTAL_BYTES as COMPARISON_DEFAULT_MAXIMUM_TOTAL_BYTES,
+    ContentVersionCompareRequest,
+    generate_content_version_comparison_report,
+)
 
 
 def _json(value: Any) -> None:
@@ -58,6 +73,13 @@ def _parse_datetime(value: str) -> datetime:
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise argparse.ArgumentTypeError("datetime must include a UTC offset or Z")
     return parsed
+
+
+def _parse_domains(value: str) -> tuple[str, ...]:
+    domains = tuple(item.strip() for item in value.split(",") if item.strip())
+    if not domains:
+        raise argparse.ArgumentTypeError("expected one or more comma-separated domains")
+    return domains
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -142,6 +164,78 @@ def build_parser() -> argparse.ArgumentParser:
     upgrade.add_argument("--output-root", type=Path, default=Path("reports/generated"))
     upgrade.add_argument("--overwrite", action="store_true")
     upgrade.add_argument("--maximum-total-bytes", type=int, default=UPGRADE_DEFAULT_MAXIMUM_TOTAL_BYTES)
+
+    progression = subparsers.add_parser(
+        "progression-next-run", help="Generate aggregate Progression Next-Run report bundle"
+    )
+    progression.add_argument("--environment", required=True, choices=("Production", "Test"))
+    progression.add_argument("--content-version", required=True, type=int)
+    progression.add_argument("--progression-kind")
+    progression.add_argument("--previous-stage-key")
+    progression.add_argument("--next-stage-key")
+    progression.add_argument("--app-version")
+    progression.add_argument("--release-id")
+    progression.add_argument("--release-channel")
+    progression.add_argument("--release-type")
+    progression.add_argument("--development-build", type=_parse_bool)
+    progression.add_argument("--progression-start-utc", type=_parse_datetime)
+    progression.add_argument("--progression-end-utc", type=_parse_datetime)
+    progression.add_argument("--uploaded-start-utc", type=_parse_datetime)
+    progression.add_argument("--uploaded-end-utc", type=_parse_datetime)
+    progression.add_argument("--as-of-utc", type=_parse_datetime)
+    progression.add_argument("--previous-run-max-gap-minutes", type=int, default=30)
+    progression.add_argument("--next-run-max-gap-minutes", type=int, default=30)
+    progression.add_argument("--output-root", type=Path, default=Path("reports/generated"))
+    progression.add_argument("--overwrite", action="store_true")
+    progression.add_argument(
+        "--maximum-total-bytes", type=int, default=PROGRESSION_DEFAULT_MAXIMUM_TOTAL_BYTES
+    )
+    post_run = subparsers.add_parser(
+        "post-run-behavior", help="Generate aggregate Post-Run Behavior report bundle"
+    )
+    post_run.add_argument("--environment", required=True, choices=("Production", "Test"))
+    post_run.add_argument("--content-version", required=True, type=int)
+    post_run.add_argument("--stage-key")
+    post_run.add_argument("--final-outcome", choices=("Clear", "Dead", "Abandon"))
+    post_run.add_argument("--app-version")
+    post_run.add_argument("--release-id")
+    post_run.add_argument("--release-channel")
+    post_run.add_argument("--release-type")
+    post_run.add_argument("--development-build", type=_parse_bool)
+    post_run.add_argument("--run-ended-start-utc", type=_parse_datetime)
+    post_run.add_argument("--run-ended-end-utc", type=_parse_datetime)
+    post_run.add_argument("--uploaded-start-utc", type=_parse_datetime)
+    post_run.add_argument("--uploaded-end-utc", type=_parse_datetime)
+    post_run.add_argument("--as-of-utc", type=_parse_datetime)
+    post_run.add_argument("--post-run-max-gap-minutes", type=int, default=30)
+    post_run.add_argument("--output-root", type=Path, default=Path("reports/generated"))
+    post_run.add_argument("--overwrite", action="store_true")
+    post_run.add_argument(
+        "--maximum-total-bytes", type=int, default=POST_RUN_DEFAULT_MAXIMUM_TOTAL_BYTES
+    )
+    comparison = subparsers.add_parser(
+        "content-version-compare", help="Compare aggregate analytics across two contentVersions"
+    )
+    comparison.add_argument("--environment", required=True, choices=("Production", "Test"))
+    comparison.add_argument("--baseline-content-version", required=True, type=int)
+    comparison.add_argument("--candidate-content-version", required=True, type=int)
+    comparison.add_argument("--stage-key")
+    comparison.add_argument("--domains", type=_parse_domains)
+    comparison.add_argument("--app-version")
+    comparison.add_argument("--release-channel")
+    comparison.add_argument("--release-type")
+    comparison.add_argument("--development-build", type=_parse_bool)
+    comparison.add_argument("--uploaded-start-utc", type=_parse_datetime)
+    comparison.add_argument("--uploaded-end-utc", type=_parse_datetime)
+    comparison.add_argument("--as-of-utc", type=_parse_datetime)
+    comparison.add_argument("--previous-run-max-gap-minutes", type=int, default=30)
+    comparison.add_argument("--next-run-max-gap-minutes", type=int, default=30)
+    comparison.add_argument("--post-run-max-gap-minutes", type=int, default=30)
+    comparison.add_argument("--output-root", type=Path, default=Path("reports/generated"))
+    comparison.add_argument("--overwrite", action="store_true")
+    comparison.add_argument(
+        "--maximum-total-bytes", type=int, default=COMPARISON_DEFAULT_MAXIMUM_TOTAL_BYTES
+    )
     return parser
 
 
@@ -303,6 +397,141 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "completeExposureCount": metadata["sample"]["completeExposures"],
                 "fullyChoiceCoveredAttempts": metadata["sample"]["fullyChoiceCoveredAttempts"],
                 "warningCodes": [warning["code"] for warning in metadata["warnings"]],
+                "estimatedBytes": metadata["dryRunEstimatedBytes"],
+            })
+            return 0
+
+        if args.command == "progression-next-run":
+            request = ProgressionNextRunRequest(
+                environment=args.environment,
+                content_version=args.content_version,
+                progression_kind=args.progression_kind,
+                previous_stage_key=args.previous_stage_key,
+                next_stage_key=args.next_stage_key,
+                app_version=args.app_version,
+                release_id=args.release_id,
+                release_channel=args.release_channel,
+                release_type=args.release_type,
+                is_development_build=args.development_build,
+                progression_occurred_at_utc_start=args.progression_start_utc,
+                progression_occurred_at_utc_end=args.progression_end_utc,
+                uploaded_at_utc_start=args.uploaded_start_utc,
+                uploaded_at_utc_end=args.uploaded_end_utc,
+                analysis_as_of_utc=args.as_of_utc,
+                previous_run_max_gap_minutes=args.previous_run_max_gap_minutes,
+                next_run_max_gap_minutes=args.next_run_max_gap_minutes,
+            )
+            path = generate_progression_next_run_report(
+                request,
+                output_root=args.output_root,
+                overwrite=args.overwrite,
+                client=client,
+                config=config,
+                maximum_total_bytes=args.maximum_total_bytes,
+            )
+            metadata = json.loads((path / "metadata.json").read_text(encoding="utf-8"))
+            sample = metadata["sample"]
+            _json({
+                "reportPath": str(path.resolve()),
+                "scope": metadata["scope"],
+                "progressionEventCount": sample["progressionEvents"],
+                "boundedEpisodeCount": sample["boundedEpisodes"],
+                "unboundedProgressionEventCount": sample["unboundedProgressionEvents"],
+                "matureEpisodeCount": sample["matureEpisodes"],
+                "nextRunLinkedEpisodeCount": sample["episodesWithNextRun"],
+                "sameStagePairedEpisodeCount": sample["sameStagePairedEpisodes"],
+                "warningCodes": [warning["code"] for warning in metadata["warnings"]],
+                "estimatedBytes": metadata["dryRunEstimatedBytes"],
+            })
+            return 0
+
+        if args.command == "post-run-behavior":
+            request = PostRunBehaviorRequest(
+                environment=args.environment,
+                content_version=args.content_version,
+                stage_key=args.stage_key,
+                final_outcome=args.final_outcome,
+                app_version=args.app_version,
+                release_id=args.release_id,
+                release_channel=args.release_channel,
+                release_type=args.release_type,
+                is_development_build=args.development_build,
+                run_ended_at_utc_start=args.run_ended_start_utc,
+                run_ended_at_utc_end=args.run_ended_end_utc,
+                uploaded_at_utc_start=args.uploaded_start_utc,
+                uploaded_at_utc_end=args.uploaded_end_utc,
+                analysis_as_of_utc=args.as_of_utc,
+                post_run_max_gap_minutes=args.post_run_max_gap_minutes,
+            )
+            path = generate_post_run_behavior_report(
+                request,
+                output_root=args.output_root,
+                overwrite=args.overwrite,
+                client=client,
+                config=config,
+                maximum_total_bytes=args.maximum_total_bytes,
+            )
+            metadata = json.loads((path / "metadata.json").read_text(encoding="utf-8"))
+            sample = metadata["sample"]
+            _json({
+                "reportPath": str(path.resolve()),
+                "scope": metadata["scope"],
+                "anchorFinalRunCount": sample["anchorFinalRuns"],
+                "matureWindowCount": sample["matureWindows"],
+                "rightCensoredWindowCount": sample["rightCensoredWindows"],
+                "feedbackRespondedWindowCount": sample["feedbackRespondedWindows"],
+                "shopPresentedWindowCount": sample["shopPresentedWindows"],
+                "shopUserNavigatedWindowCount": sample["shopUserNavigatedWindows"],
+                "progressionWindowCount": sample["progressionWindows"],
+                "commerceAttemptWindowCount": sample["commerceAttemptWindows"],
+                "committedSuccessWindowCount": sample["committedSuccessWindows"],
+                "nextRunWithinWindowCount": sample["nextRunWithinWindowWindows"],
+                "warningCodes": [warning["code"] for warning in metadata["warnings"]],
+                "estimatedBytes": metadata["dryRunEstimatedBytes"],
+            })
+            return 0
+
+        if args.command == "content-version-compare":
+            request = ContentVersionCompareRequest(
+                environment=args.environment,
+                baseline_content_version=args.baseline_content_version,
+                candidate_content_version=args.candidate_content_version,
+                stage_key=args.stage_key,
+                domains=args.domains,
+                app_version=args.app_version,
+                release_channel=args.release_channel,
+                release_type=args.release_type,
+                is_development_build=args.development_build,
+                uploaded_at_utc_start=args.uploaded_start_utc,
+                uploaded_at_utc_end=args.uploaded_end_utc,
+                analysis_as_of_utc=args.as_of_utc,
+                previous_run_max_gap_minutes=args.previous_run_max_gap_minutes,
+                next_run_max_gap_minutes=args.next_run_max_gap_minutes,
+                post_run_max_gap_minutes=args.post_run_max_gap_minutes,
+            )
+            path = generate_content_version_comparison_report(
+                request,
+                output_root=args.output_root,
+                overwrite=args.overwrite,
+                client=client,
+                config=config,
+                maximum_total_bytes=args.maximum_total_bytes,
+            )
+            metadata = json.loads((path / "metadata.json").read_text(encoding="utf-8"))
+            quality = metadata["quality"]
+            source_domains = {
+                item["domain"] for item in metadata.get("sourceAnalyses", [])
+            }
+            warning_codes = [item["code"] for item in metadata["warnings"]]
+            _json({
+                "reportPath": str(path.resolve()),
+                "environment": request.environment,
+                "baselineContentVersion": request.baseline_content_version,
+                "candidateContentVersion": request.candidate_content_version,
+                "domainsCompared": sorted(source_domains),
+                "domainsLimited": quality["domainsLimited"],
+                "domainsUnavailable": quality["domainsUnavailable"],
+                "warningCodes": warning_codes,
                 "estimatedBytes": metadata["dryRunEstimatedBytes"],
             })
             return 0

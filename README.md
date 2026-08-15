@@ -1,6 +1,6 @@
 # DefenceProjectAnalytics
 
-DefenceProject telemetry handoff, copied BigQuery schemas, and canonical SQL are the source of truth for this read-only analytics project. Phase B-3 adds aggregate Upgrade Choice analysis while retaining the Phase A foundation and the Phase B-1/B-2 Stage Difficulty and Weapon Performance reports.
+DefenceProject telemetry handoff, copied BigQuery schemas, and canonical SQL are the source of truth for this read-only analytics project. Phase B-4 adds aggregate Progression Next-Run analysis while retaining the Phase A foundation and the existing Stage Difficulty, Weapon Performance, and Upgrade Choice reports.
 
 No command in this repository creates or changes cloud resources. Queries are restricted to `SELECT`/`WITH`; service-account keys, telemetry upload secrets, raw bucket access, full local telemetry dumps, dashboards, and balancing recommendations are outside scope.
 
@@ -192,7 +192,136 @@ generated_path = generate_upgrade_choice_report(request)
 - Choice context uses the exposure time. Preceding player snapshots older than 30 seconds are marked stale; transition fallback is explicitly approximate.
 - Pick-rate, pairwise, and outcome differences are descriptive and non-causal.
 
-## 8. Population, resume, and completeness
+## 8. Progression Next-Run report
+
+Progression Next-Run requires environment and content version. It has no stage-wide population filter: optional previous/next stage values constrain association and paired results only.
+
+```powershell
+defence-analytics progression-next-run `
+  --environment Test `
+  --content-version 4 `
+  --as-of-utc 2026-08-15T00:00:00Z
+```
+
+Optional exact progression filters are `--progression-kind`, app/release fields, and `--development-build`. `--progression-start-utc`/`--progression-end-utc` constrain progression journey time; `--uploaded-start-utc`/`--uploaded-end-utc` constrain only primary progression ingestion. Supporting attempt and gameplay sources use the shared as-of upper bound so valid structural links are not lost.
+
+The default previous and next immediate windows are 30 minutes and can be changed independently. Python uses the same contract:
+
+```python
+from defence_project_analytics import (
+    ProgressionNextRunRequest,
+    analyze_progression_next_run,
+    generate_progression_next_run_report,
+)
+
+request = ProgressionNextRunRequest(environment="Test", content_version=4)
+analysis = analyze_progression_next_run(request)
+generated_path = generate_progression_next_run_report(request)
+```
+
+### Progression boundaries and interpretation
+
+- The nearest previous final attempt and nearest next new attempt are structural boundaries. They are resolved before and independently of the configured max-gap windows.
+- Max-gap values affect previous-context eligibility, immediate next-run engagement, and right-censoring; changing them does not redefine structural episode membership for the same as-of snapshot.
+- A next run is a new gameplay attempt with `segmentIndex=1`. Resume continuations and lifecycle terminal rows are not next runs.
+- Events with neither structural boundary remain in progression activity but are not merged into player-long episodes and are excluded from episode, co-occurrence, engagement, and paired analysis.
+- `noNextRunWithinWindow` means that no qualifying next new attempt was observed in telemetry uploaded by `analysisAsOfUtc`. Offline or not-yet-uploaded gameplay may appear in a later snapshot; this metric is not churn.
+- Recent episodes without an observed next run are right-censored until the configured window matures and are excluded from the next-run-rate denominator.
+- Primary paired results require same-stage, same-content final attempts, eligible immediate links, and no open/resume overlap. All results are descriptive and non-causal.
+
+The seven queries are dry-run together before execution and use the shared 1GB default cost gate. Reports use the stage-less path `reports/generated/progression-next-run/<environment>__all-stages__cv-<version>__<hash8>/`.
+
+## 9. Post-Run Behavior report
+
+Post-Run Behavior anchors one analytical window at each final attempt and observes feedback,
+lobby presentation, user navigation, shop/offer activity, economy events, progression, and the
+next new gameplay attempt. It does not reconstruct an application session.
+
+```powershell
+defence-analytics post-run-behavior `
+  --environment Test `
+  --content-version 4 `
+  --as-of-utc 2026-08-15T00:00:00Z
+```
+
+Optional anchor filters include `--stage-key`, `--final-outcome`, app/release fields,
+run-ended bounds, and ingestion bounds. Supporting activity uses the resolved as-of snapshot
+rather than the anchor ingestion interval. The seven aggregate queries share a 1GB default
+dry-run gate.
+
+```python
+from defence_project_analytics import (
+    PostRunBehaviorRequest,
+    analyze_post_run_behavior,
+    generate_post_run_behavior_report,
+)
+
+request = PostRunBehaviorRequest(environment="Test", content_version=4)
+analysis = analyze_post_run_behavior(request)
+generated_path = generate_post_run_behavior_report(request)
+```
+
+### Post-run interpretation
+
+- The window is half-open from final `segmentEndedAtUtc` to the earlier of the next new attempt or the configured 30-minute cap. Resume and lifecycle-terminal rows do not close it.
+- Recent windows without an observed next attempt are right-censored and excluded from mature absence and next-run denominators.
+- `shopPresentedWindows` records a Shop tab or section presentation. `shopUserNavigatedWindows` requires `TabViewed(tab='Shop', navigationSource='User')`; a section presentation alone never establishes user navigation or a direct section click.
+- `observedAttemptSuccessRate` is linked Succeeded results divided by observed best-effort commerce Attempt operations.
+- `committedSuccessWindowRate` is durable Succeeded-result presence divided by relevant mature windows. A missing best-effort Attempt does not change the durable Result fact.
+- Fun Feedback Uranium rewards and progression spends are excluded from both commerce metrics.
+- Initial and programmatic navigation are presentations, not user intent. Best-effort event absence does not prove behavior absence.
+- No next new attempt observed within the window is not churn; offline or later-uploaded gameplay may appear in a later as-of snapshot.
+
+## 10. ContentVersion comparison
+
+ContentVersion Comparison executes the existing aggregate analyses for an ordered baseline and
+candidate, keeps those source results in memory, and writes only the final comparison bundle.
+It never creates intermediate Stage, Weapon, Upgrade, Progression, or Post-Run report directories.
+
+```powershell
+defence-analytics content-version-compare `
+  --environment Test `
+  --baseline-content-version 1 `
+  --candidate-content-version 4 `
+  --stage-key stage1 `
+  --as-of-utc 2026-08-15T00:00:00Z
+```
+
+With a stage, all five domains run by default. Without a stage, the default is the stage-less
+Progression and Post-Run domains; explicitly selecting Stage, Weapon, or Upgrade requires
+`--stage-key`. Use `--domains stage,weapon,post-run` to select a subset. All source queries and
+the cohort profile are dry-run before any actual query. Their total shares a 1GB default cap.
+
+```python
+from defence_project_analytics import (
+    ContentVersionCompareRequest,
+    analyze_content_version_comparison,
+    generate_content_version_comparison_report,
+)
+
+request = ContentVersionCompareRequest(
+    environment="Test",
+    baseline_content_version=1,
+    candidate_content_version=4,
+    stage_key="stage1",
+)
+analysis = analyze_content_version_comparison(request)
+generated_path = generate_content_version_comparison_report(request)
+```
+
+### Comparison interpretation
+
+- Every delta is `candidate - baseline`; version numbers are not automatically sorted.
+- Ratio rows preserve both counts, both denominators, and both ratios. Percentage-point and relative changes are separate, and relative change is null when the baseline is zero.
+- `0` means an observed zero. A missing or one-side-only open content identity stays null and is labeled as observed only on the available side.
+- Each metric has one coarse status (`Comparable`, `Limited`, `Unavailable`, or `Incompatible`) and an independently ordered list of all applicable warning codes. Low sample, coverage difference, and source warnings can coexist.
+- Stage Difficulty uses `uploadedAtUtc` as an ingestion upper bound. This is not a BigQuery historical system-time snapshot. The other domains use their `analysisAsOfUtc` telemetry-row parameter; metadata records these snapshot modes separately.
+- ContentVersion differences are observational. Counts, coverage, release identity, and observation times must be considered before interpreting a delta.
+
+The output path is
+`reports/generated/content-version-compare/<environment>__<stage-or-all-stages>__cv-<baseline>-vs-cv-<candidate>__<hash8>/`.
+
+## 11. Population, resume, and completeness
 
 - Final attempts come only from `telemetry_attempt_outcomes_v1`; raw `telemetry_run_summary` rows are not counted as attempts.
 - Clear rate is `Clear / (Clear + Dead)`; Abandon is reported separately.
@@ -204,11 +333,11 @@ generated_path = generate_upgrade_choice_report(request)
 - Incoming damage and threat include all eligible resume segments once. Final lethal cause and player state use only the final Dead run.
 - Lethal-hit events can precede revival and are never treated as final death counts.
 
-## 9. Warning interpretation
+## 12. Warning interpretation
 
-Warnings do not fail report generation. Stage Difficulty keeps its existing thresholds. Weapon reports identify detail and DPS coverage issues. Upgrade reports identify incomplete/truncated presentations, same-segment selection-count mismatches, unlinked selections, approximate context, low candidate/pair samples, and observational association bias. Treat affected metrics as descriptive aggregates with the exact denominator recorded in metadata and CSV.
+Warnings do not fail report generation. Stage Difficulty keeps its existing thresholds. Weapon reports identify detail and DPS coverage issues. Upgrade reports identify incomplete/truncated presentations, same-segment selection-count mismatches, unlinked selections, approximate context, low candidate/pair samples, and observational association bias. Progression reports distinguish low event/episode/pair samples, unbounded activity-only events, missing immediate context, open/resume exclusions, right-censoring, cross-content exclusions, and multi-progression confounding. Treat affected metrics as descriptive aggregates with the exact denominator recorded in metadata and CSV.
 
-## 10. LLM handoff
+## 13. LLM handoff
 
 The report contract is documented in [docs/report-contract.md](docs/report-contract.md). The recommended files to provide to an LLM are:
 
@@ -251,6 +380,56 @@ tables/upgrade_context.csv
 ```
 
 Stable upgrade/category/content identifiers are allowed. Player, attempt, gameplay-segment, upload, exposure, and runtime instance identifiers are never written.
+
+For Progression Next-Run, provide:
+
+```text
+report.md
+metrics.json
+metadata.json
+tables/progression_activity.csv
+tables/progression_episode_composition.csv
+tables/progression_next_run.csv
+tables/progression_outcome_transitions.csv
+```
+
+Progression artifacts contain aggregate stable kind/target/state dimensions only. They never contain player, attempt, run, event, transaction, or batch identifiers.
+
+For Post-Run Behavior, provide:
+
+```text
+report.md
+metrics.json
+metadata.json
+tables/post_run_navigation.csv
+tables/post_run_feedback_behavior.csv
+tables/post_run_shop_funnel.csv
+tables/post_run_commerce.csv
+tables/post_run_progression.csv
+tables/post_run_next_run.csv
+```
+
+Post-run artifacts distinguish presentation from user navigation and observed Attempt resolution
+from durable committed-result presence. They contain aggregate dimensions only and never raw
+player, attempt, run, event, operation, presentation, batch, or upload identifiers.
+
+For ContentVersion Comparison, provide:
+
+```text
+report.md
+metrics.json
+metadata.json
+tables/comparison_data_quality.csv
+tables/comparison_stage.csv (when relevant)
+tables/comparison_weapon.csv (when relevant)
+tables/comparison_upgrade.csv (when relevant)
+tables/comparison_progression.csv (when relevant)
+tables/comparison_post_run.csv (when relevant)
+```
+
+The comparison report keeps source definitions, samples, quality, warnings, and snapshot modes in
+metadata. It provides descriptive directions only and does not assign positive or negative value
+to a change.
 
 ## Tests and build
 
