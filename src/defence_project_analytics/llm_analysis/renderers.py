@@ -165,6 +165,9 @@ def render_analysis_markdown(
             f"- Proposal: {item.proposed_change.description}",
             f"- Rationale: {item.rationale}",
         ))
+        if item.risks:
+            lines.append("- Risks:")
+            lines.extend(f"  - {value}" for value in item.risks)
         if item.proposed_change.amount_percent is not None:
             lines.append(
                 f"- Heuristic tuning candidate: {item.proposed_change.direction} "
@@ -206,4 +209,3 @@ def render_analysis_markdown(
 
 def analysis_payload(analysis: ValidatedAnalysis) -> Mapping[str, Any]:
     return to_external(analysis)
-

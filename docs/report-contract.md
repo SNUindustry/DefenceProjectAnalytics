@@ -129,25 +129,27 @@ Progression CSVs contain aggregate activity, exact state transitions, episode co
 
 ## Post-Run Behavior contract
 
+Current Post-Run Behavior uses `analysisVersion: "1.1.0"`. Feedback rows remain in historical
+`1.0.0` bundles and raw telemetry, but are not part of the current report population or output.
+
 - A post-run window is anchored by one row from `telemetry_attempt_outcomes_v1`. It ends at the earlier of the next new gameplay attempt or the configured max-gap. Resume continuations and lifecycle terminal rows are not next attempts.
 - `shopPresentedWindows` counts mature windows with an observed Shop tab or Shop section presentation. `shopUserNavigatedWindows` counts only `TabViewed(tab='Shop', navigationSource='User')`. Shop section presentation never implies user navigation or a direct section click.
 - Initial and programmatic navigation remain observed presentation but are excluded from user-navigation and high-level user-action metrics.
 - `observedAttemptSuccessRate` has observation unit `observedCommerceAttemptOperation`: its count is observed commerce Attempts linked to Succeeded and its denominator is all observed commerce Attempts.
 - `committedSuccessWindowRate` has observation unit `maturePostRunWindow`: its count is mature windows with at least one durable commerce Succeeded Result and its denominator is the relevant mature-window cohort.
 - A durable Succeeded Result without an observed best-effort Attempt remains committed presence. Attempt availability does not change the durable Result fact and is reported separately in data quality.
-- `Duplicate` is not a new committed success. Fun Feedback Uranium rewards, progression spends, RandomBox spends, and other system rewards are excluded from commerce.
-- Feedback cohorts are `NotExposed`, `ExposedNoResponse`, `PositiveResponse`, and `NegativeResponse`; feedback eligibility/cadence and response self-selection make comparisons non-causal.
+- `Duplicate` is not a new committed success. Non-commerce system rewards, progression spends, and RandomBox spends are excluded from commerce. Historical Fun Feedback rewards remain covered by the exact non-commerce exclusion.
 - Right-censored windows are excluded from mature absence and no-next denominators. Next-run observation is based on telemetry uploaded by `analysisAsOfUtc`; no-next is not churn.
 - Lobby, shop, IAP, and transaction Attempt telemetry is best-effort. Event absence does not prove behavior absence.
 - Action transitions are aggregate consecutive high-level user-action pairs, not player journeys, sessions, clickstream paths, or a Markov model.
 
-Post-run CSVs contain aggregate navigation, feedback, shop/offer, commerce, progression, next-run,
+Post-run CSVs contain aggregate navigation, shop/offer, commerce, progression, next-run,
 first-action, transition, and quality breakdowns. Player, attempt, run, event, operation,
 presentation, batch, and upload identifiers are forbidden.
 
 ## ContentVersion Comparison contract
 
-`contentVersionCompare` uses `analysisVersion: "1.0.0"` and keeps the baseline/candidate order
+`contentVersionCompare` uses `analysisVersion: "1.1.0"` and keeps the baseline/candidate order
 provided by the caller. All deltas are candidate minus baseline. Its scope contains both versions,
 the selected domains, common filters, resolved cutoff, and all window definitions. The path uses
 `cv-<baseline>-vs-cv-<candidate>` and therefore also preserves comparison direction.
@@ -179,6 +181,7 @@ forbidden. The generator emits only descriptive direction and never assigns a tu
 
 ## Analysis Brief consumer
 
-Phase C-1 consumes these `1.0.0` aggregate bundles without querying BigQuery or changing their
-schema. Its Evidence ID, source-integrity, selection, and four-file output contract is documented in
+Phase C-1 accepts the analysis-type version matrix, including historical Post-Run/Comparison
+`1.0.0` and current `1.1.0`, without querying BigQuery. Historical feedback remains readable but
+is excluded from new evidence selection. Its Evidence ID, source-integrity, selection, and four-file output contract is documented in
 [analysis-brief-contract.md](analysis-brief-contract.md).

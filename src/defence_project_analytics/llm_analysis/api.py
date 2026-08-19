@@ -13,6 +13,7 @@ from defence_project_analytics.llm_analysis.models import (
     AnalysisProvider,
     ValidatedAnalysis,
 )
+from defence_project_analytics.llm_analysis.loader import verify_source_brief_unchanged
 from defence_project_analytics.llm_analysis.prompting import (
     build_analysis_prompt,
     load_analysis_prompt_package,
@@ -105,10 +106,16 @@ def run_analysis_with_provider(
 ) -> Path:
     package = build_analysis_prompt(request, workspace_root=workspace_root)
     response = provider.generate(package)
+    verify_source_brief_unchanged(package.source)
     analysis = validate_response(package, response)
     provider_metadata = getattr(provider, "last_run_metadata", None)
     if not isinstance(provider_metadata, Mapping):
         provider_metadata = {}
+    else:
+        provider_metadata = {
+            **provider_metadata,
+            "canonicalValidationPassed": True,
+        }
     provider_mode = str(provider_metadata.get("providerMode", "programmaticProtocol"))
     provider_call_count = int(provider_metadata.get("providerCallCount", 1))
     return write_validated_analysis(

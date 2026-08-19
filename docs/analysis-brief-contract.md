@@ -2,6 +2,9 @@
 
 Phase C-1 is a local-only compiler for existing aggregate analytics reports. It accepts explicit
 generated bundle paths and never invokes BigQuery, ADC, a source analyzer, a raw bucket, or an LLM.
+Selection policy `1.1.0` separates metric readability from evidence eligibility. Feedback metrics
+in historical Post-Run or Comparison bundles are recognized and hashed with their source bundle,
+but are never emitted as new C-1 Evidence or provider-facing feedback-only warnings.
 
 ## Input modes
 

@@ -42,6 +42,26 @@ class AnthropicRequestValidationError(AnalysisProviderError):
     code = "ANTHROPIC_REQUEST_VALIDATION_ERROR"
 
 
+class AnthropicEvidenceAliasError(AnthropicRequestValidationError):
+    code = "ANTHROPIC_EVIDENCE_ALIAS_ERROR"
+
+
+class AnthropicMetricAliasError(AnthropicRequestValidationError):
+    code = "ANTHROPIC_METRIC_ALIAS_ERROR"
+
+
+class AnthropicWarningAliasError(AnthropicRequestValidationError):
+    code = "ANTHROPIC_WARNING_ALIAS_ERROR"
+
+
+class AnthropicValidationPlanRefError(AnthropicRequestValidationError):
+    code = "ANTHROPIC_VALIDATION_PLAN_REF_ERROR"
+
+
+class AnthropicOutputRefError(AnthropicRequestValidationError):
+    code = "ANTHROPIC_OUTPUT_REF_ERROR"
+
+
 class AnthropicStructuredOutputUnsupportedError(AnalysisProviderError):
     code = "ANTHROPIC_STRUCTURED_OUTPUT_UNSUPPORTED"
 
@@ -71,6 +91,30 @@ class AnthropicResponseTruncatedError(AnalysisProviderError):
 
 class AnthropicMalformedResponseError(AnalysisProviderError):
     code = "ANTHROPIC_MALFORMED_RESPONSE"
+
+
+class AnthropicUnexpectedStopReasonError(AnalysisProviderError):
+    code = "ANTHROPIC_UNEXPECTED_STOP_REASON"
+
+
+class AnthropicRequiredToolMissingError(AnalysisProviderError):
+    code = "ANTHROPIC_REQUIRED_TOOL_MISSING"
+
+
+class AnthropicDuplicateToolUseError(AnalysisProviderError):
+    code = "ANTHROPIC_DUPLICATE_TOOL_USE"
+
+
+class AnthropicUnknownToolUseError(AnalysisProviderError):
+    code = "ANTHROPIC_UNKNOWN_TOOL_USE"
+
+
+class AnthropicInvalidToolInputError(AnalysisProviderError):
+    code = "ANTHROPIC_INVALID_TOOL_INPUT"
+
+
+class AnthropicFlatReconstructionError(AnalysisProviderError):
+    code = "ANTHROPIC_FLAT_RECONSTRUCTION_FAILED"
 
 
 class AnthropicRefusalError(AnalysisProviderError):

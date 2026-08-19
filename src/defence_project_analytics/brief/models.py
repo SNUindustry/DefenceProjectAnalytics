@@ -9,7 +9,7 @@ from typing import Any, Mapping
 
 
 ANALYSIS_BRIEF_VERSION = "1.0.0"
-SELECTION_POLICY_VERSION = "1.0.0"
+SELECTION_POLICY_VERSION = "1.1.0"
 SINGLE_MODE = "singleVersion"
 COMPARISON_MODE = "contentVersionCompare"
 DOMAIN_ORDER = (

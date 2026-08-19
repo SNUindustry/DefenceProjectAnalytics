@@ -8,8 +8,8 @@ from typing import Any, Mapping, Protocol
 
 
 ANALYSIS_VERSION = "1.0.0"
-ANALYSIS_POLICY_VERSION = "1.0.0"
-PROMPT_TEMPLATE_VERSION = "1.0.0"
+ANALYSIS_POLICY_VERSION = "1.3.0"
+PROMPT_TEMPLATE_VERSION = "1.3.0"
 RESPONSE_CONTRACT_VERSION = "1.0.0"
 DEFAULT_MAX_PROMPT_CHARACTERS = 400_000
 DEFAULT_MAX_RESPONSE_CHARACTERS = 100_000
@@ -17,6 +17,15 @@ MAX_OBSERVATIONS = 10
 MAX_RESPONSE_SECTION_ITEMS = 5
 MAX_EXECUTIVE_SUMMARY_IDS = 3
 MAX_ROLLBACK_INDICATORS = 10
+OUTPUT_ID_DIGITS = 3
+OUTPUT_ID_PREFIXES = {
+    "observation": "OBS",
+    "interpretation": "INT",
+    "hypothesis": "HYP",
+    "gap": "GAP",
+    "change": "CHG",
+    "validation": "VAL",
+}
 
 FINDING_TYPES = frozenset({
     "ObservedValue",
@@ -26,9 +35,11 @@ FINDING_TYPES = frozenset({
     "LimitedOrUnavailable",
 })
 IMPORTANCE_VALUES = frozenset({"Core", "Supporting"})
+COUNTER_EVIDENCE_FOUND_STATUS = "FoundInSuppliedBrief"
+COUNTER_EVIDENCE_NOT_IDENTIFIED_STATUS = "NotIdentifiedInSuppliedBrief"
 COUNTER_SEARCH_VALUES = frozenset({
-    "FoundInSuppliedBrief",
-    "NotIdentifiedInSuppliedBrief",
+    COUNTER_EVIDENCE_FOUND_STATUS,
+    COUNTER_EVIDENCE_NOT_IDENTIFIED_STATUS,
 })
 ACTION_TYPES = frozenset({
     "NoChange",

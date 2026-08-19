@@ -17,7 +17,6 @@ from defence_project_analytics.reporting.models import (
     ActionSequenceMetrics,
     CommerceMetrics,
     DistributionSummary,
-    FeedbackBehaviorMetrics,
     MetricRatio,
     NavigationMetrics,
     PostRunAnalysisScope,
@@ -40,13 +39,12 @@ from defence_project_analytics.reporting.writer import write_report_bundle
 from defence_project_analytics.sql_loader import load_sql, named_parameter_names
 
 
-ANALYSIS_VERSION = "1.0.0"
+ANALYSIS_VERSION = "1.1.0"
 DEFAULT_MAXIMUM_TOTAL_BYTES = 1_000_000_000
 POPULATION_FRAGMENT = "sql/analysis/_post_run_population_ctes_v1.sql"
 INCLUDE_MARKER = "-- @include post_run_population_ctes_v1"
 SQL_FILES = {
     "population": "sql/analysis/post_run_population_v1.sql",
-    "feedback": "sql/analysis/post_run_feedback_v1.sql",
     "navigation": "sql/analysis/post_run_navigation_v1.sql",
     "shopCommerce": "sql/analysis/post_run_shop_commerce_v1.sql",
     "progression": "sql/analysis/post_run_progression_v1.sql",
@@ -64,14 +62,6 @@ TABLE_SPECS: Mapping[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
         "userNavigatedWindows", "userNavigatedDenominator", "userNavigatedRate",
         "initialViewedWindows", "programmaticViewedWindows", "eventCount",
     ), ("anchorOutcome", "dimension")),
-    "post_run_feedback_behavior.csv": ((
-        "anchorOutcome", "feedbackCohort", "windowCount", "shopPresentedCount",
-        "shopPresentedRate", "shopUserNavigatedCount", "shopUserNavigatedRate",
-        "offerSelectedCount", "offerSelectedRate", "commerceAttemptCount",
-        "commerceAttemptRate", "committedSuccessCount", "committedSuccessWindowRate",
-        "progressionCount", "progressionRate", "nextRunCount", "nextRunRate",
-        "timeToNextRunP25", "timeToNextRunMedian", "timeToNextRunP75",
-    ), ("anchorOutcome", "feedbackCohort")),
     "post_run_shop_funnel.csv": ((
         "rowType", "anchorOutcome", "dimension", "matureWindows", "shopPresentedWindows",
         "shopUserNavigatedWindows", "offerExposedWindows", "offerSelectedWindows",
@@ -291,8 +281,6 @@ def _build_warnings(
         add("RIGHT_CENSORED_POST_RUN_WINDOW", f"Excluded {sample.right_censored_windows} recent windows from mature denominators.")
     if quality.windows_without_lobby_activity_observed:
         add("BEST_EFFORT_ACTIVITY_ABSENCE", f"No lobby activity was observed in {quality.windows_without_lobby_activity_observed} mature windows; absence is best-effort evidence only.")
-    if quality.feedback_link_mismatch_rows or quality.feedback_outside_window_rows:
-        add("FEEDBACK_LINK_MISMATCH", f"Found {quality.feedback_link_mismatch_rows} feedback link mismatches and {quality.feedback_outside_window_rows} out-of-window or cross-content rows.")
     if quality.cross_content_actions:
         add("CROSS_CONTENT_POST_RUN_ACTION", f"Observed {quality.cross_content_actions} cross-content actions; product metrics exclude them.")
     if quality.cross_release_actions:
@@ -309,12 +297,10 @@ def _build_warnings(
         add("TRANSACTION_ATTEMPT_WITHOUT_RESULT", f"{quality.transaction_attempt_without_result} observed Attempts have no Result by the snapshot.")
     if quality.transaction_result_without_observed_attempt:
         add("TRANSACTION_RESULT_WITHOUT_OBSERVED_ATTEMPT", f"{quality.transaction_result_without_observed_attempt} Results have no observed best-effort Attempt; this is an Attempt-availability warning and does not change the durable Result fact.")
-    if quality.fun_feedback_rewards_excluded:
-        add("FUN_FEEDBACK_REWARD_EXCLUDED_FROM_COMMERCE", f"Excluded {quality.fun_feedback_rewards_excluded} FunFeedback reward transaction rows from commerce.")
+    if quality.non_commerce_system_rewards_excluded:
+        add("NON_COMMERCE_SYSTEM_REWARD_EXCLUDED", f"Excluded {quality.non_commerce_system_rewards_excluded} non-commerce system reward transaction rows from commerce.")
     if quality.progression_transactions_excluded:
         add("PROGRESSION_TRANSACTION_EXCLUDED_FROM_COMMERCE", f"Excluded {quality.progression_transactions_excluded} progression transaction rows from commerce.")
-    if sample.feedback_responded_windows < thresholds.feedback_responses:
-        add("LOW_FEEDBACK_SAMPLE", f"Feedback response windows ({sample.feedback_responded_windows}) are below {thresholds.feedback_responses}.")
     if sample.commerce_attempt_windows < thresholds.observed_commerce_attempts:
         add("LOW_COMMERCE_SAMPLE", f"Observed commerce Attempt windows ({sample.commerce_attempt_windows}) are below {thresholds.observed_commerce_attempts}.")
     if sample.progression_windows < thresholds.progression_windows:
@@ -356,10 +342,6 @@ def _render_markdown(
 
 - Clear/Dead/Abandon: {sample.clears}/{sample.deaths}/{sample.abandons}
 
-## Feedback
-
-- Feedback is eligibility/cadence conditioned and response cohorts are self-selected.
-
 ## First Post-Run Actions
 
 - First observed actions include automatic presentation. First user actions do not.
@@ -378,7 +360,7 @@ def _render_markdown(
 - Observed Attempt success: {commerce.linked_succeeded_attempts}/{commerce.observed_commerce_attempts}.
 - Durable committed-success windows: {commerce.durable_committed_success_windows}/{sample.mature_windows}.
 - A durable Succeeded Result without an observed best-effort Attempt remains committed presence; Attempt availability does not change the durable Result fact.
-- Fun Feedback Uranium rewards and progression spends are excluded from commerce.
+- Non-commerce system rewards and progression spends are excluded from commerce.
 
 ## Progression
 
@@ -399,7 +381,7 @@ def _render_markdown(
 
 ## Caveats
 
-- Post-run and feedback behavior are observational and not causal.
+- Post-run behavior is observational and not causal.
 - Initial and programmatic navigation are not user-selected navigation.
 - Lobby, shop, IAP, and transaction Attempt telemetry is best-effort; absence does not prove behavior absence.
 - Same-timestamp cross-domain ordering is deterministic analytical ordering, not recovered click chronology.
@@ -425,8 +407,7 @@ def _assemble_bundle(
         _int(row, "anchorFinalRuns"), _int(row, "uniquePlayers"), _int(row, "clears"),
         _int(row, "deaths"), _int(row, "abandons"), _int(row, "unrecognizedOutcomes"),
         _int(row, "linkageEligibleWindows"), _int(row, "matureWindows"),
-        _int(row, "rightCensoredWindows"), _int(row, "feedbackExposedWindows"),
-        _int(row, "feedbackRespondedWindows"), _int(row, "shopPresentedWindows"),
+        _int(row, "rightCensoredWindows"), _int(row, "shopPresentedWindows"),
         _int(row, "shopUserNavigatedWindows"), _int(row, "commerceAttemptWindows"),
         _int(row, "committedSuccessWindows"), _int(row, "progressionWindows"),
         _int(row, "nextRunWithinWindowWindows"),
@@ -436,8 +417,7 @@ def _assemble_bundle(
         _int(row, "resolvedWindows"), _int(row, "matureNoNextWindows"),
         _int(row, "laterNextRunOutsideWindowWindows"), _int(row, "windowsWithObservedAction"),
         _int(row, "windowsWithUserAction"), _int(row, "windowsWithoutObservedAction"),
-        _int(row, "windowsWithoutLobbyActivityObserved"), _int(row, "feedbackLinkMismatchRows"),
-        _int(row, "feedbackOutsideWindowRows"), _int(row, "conflictingFeedbackResponseWindows"),
+        _int(row, "windowsWithoutLobbyActivityObserved"),
         _int(row, "physicalLobbyRows"), _int(row, "dedupedLobbyRows"),
         _int(row, "physicalShopRows"), _int(row, "dedupedShopRows"),
         _int(row, "physicalTransactionRows"), _int(row, "dedupedTransactionRows"),
@@ -448,18 +428,22 @@ def _assemble_bundle(
         _int(row, "transactionAttemptWithoutResult"), _int(row, "transactionResultWithoutObservedAttempt"),
         _int(row, "committedSuccessWithoutObservedAttemptResults"),
         _int(row, "committedSuccessWithoutObservedAttemptWindows"),
-        _int(row, "funFeedbackRewardsExcluded"), _int(row, "progressionTransactionsExcluded"),
+        _int(row, "nonCommerceSystemRewardsExcluded"), _int(row, "progressionTransactionsExcluded"),
         _int(row, "sameTimestampActionGroups"), _int(row, "unrecognizedActionRows"),
         _int(row, "nextOutcomePendingWindows"),
     )
-    feedback_frame = _external_frame(frames["feedback"])
     navigation_frame = _external_frame(frames["navigation"])
     shop_frame = _external_frame(frames["shopCommerce"])
     progression_frame = _external_frame(frames["progression"])
     next_frame = _external_frame(frames["nextRun"])
     sequence_frame = _external_frame(frames["actionSequence"])
-    positive = int(feedback_frame.loc[feedback_frame.get("feedbackCohort", pd.Series(dtype=str)) == "PositiveResponse", "windowCount"].sum()) if not feedback_frame.empty else 0
-    negative = int(feedback_frame.loc[feedback_frame.get("feedbackCohort", pd.Series(dtype=str)) == "NegativeResponse", "windowCount"].sum()) if not feedback_frame.empty else 0
+    if not sequence_frame.empty:
+        from_action = sequence_frame.get("fromAction", pd.Series(dtype=str)).fillna("").astype(str)
+        to_action = sequence_frame.get("toAction", pd.Series(dtype=str)).fillna("").astype(str)
+        sequence_frame = sequence_frame.loc[
+            ~from_action.str.startswith("Feedback")
+            & ~to_action.str.startswith("Feedback")
+        ].copy()
     commerce_rows = shop_frame.loc[shop_frame.get("rowType", pd.Series(dtype=str)) == "commerce"] if not shop_frame.empty else shop_frame
     observed_attempts = int(commerce_rows.get("observedAttemptCount", pd.Series(dtype=float)).fillna(0).sum())
     linked_succeeded = int(commerce_rows.get("linkedSucceededAttemptCount", pd.Series(dtype=float)).fillna(0).sum())
@@ -469,10 +453,6 @@ def _assemble_bundle(
             sample.linkage_eligible_windows, sample.mature_windows, quality.resolved_windows,
             quality.mature_no_next_windows, sample.right_censored_windows,
             quality.later_next_run_outside_window_windows,
-        ),
-        feedback=FeedbackBehaviorMetrics(
-            sample.feedback_exposed_windows, sample.feedback_responded_windows, positive, negative,
-            MetricRatio.from_counts(positive, positive + negative), _rows(feedback_frame),
         ),
         navigation=NavigationMetrics(
             sample.shop_presented_windows,
@@ -554,7 +534,6 @@ def _assemble_bundle(
     tables: dict[str, pd.DataFrame] = {
         "post_run_first_action.csv": sequence_frame.loc[sequence_frame.get("rowType", pd.Series(dtype=str)).isin(["firstObserved", "firstUser"])].copy(),
         "post_run_navigation.csv": navigation_frame,
-        "post_run_feedback_behavior.csv": feedback_frame,
         "post_run_shop_funnel.csv": shop_frame.loc[shop_frame.get("rowType", pd.Series(dtype=str)) == "funnel"].copy(),
         "post_run_offer_funnel.csv": shop_frame.loc[shop_frame.get("rowType", pd.Series(dtype=str)) == "offer"].copy(),
         "post_run_commerce.csv": shop_frame.loc[shop_frame.get("rowType", pd.Series(dtype=str)).isin(["commerce", "iapLifecycle"])].copy(),

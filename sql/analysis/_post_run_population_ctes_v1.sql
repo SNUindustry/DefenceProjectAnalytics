@@ -142,23 +142,6 @@ classified_windows AS (
     resolvedByNextRunWithinWindow AND nextContentVersion = @content_version AS sameContentNextRun
   FROM windows AS w
 ),
-feedback_physical AS (
-  SELECT
-    environment, runId, eventId, eventKind, response, occurredAtUtc,
-    telemetryPlayerId, contentVersion, releaseId, uploadedAtUtc
-  FROM `<firebase-project-id>.<bigquery-dataset-id>.telemetry_run_feedback_events`
-  WHERE environment = @environment
-    AND uploadedAtUtc < @analysis_as_of_utc
-    AND occurredAtUtc < @analysis_as_of_utc
-),
-feedback_deduped AS (
-  SELECT environment, runId, eventId, eventKind, response, occurredAtUtc,
-    telemetryPlayerId, contentVersion, releaseId, uploadedAtUtc
-  FROM feedback_physical
-  QUALIFY ROW_NUMBER() OVER (
-    PARTITION BY environment, eventId ORDER BY uploadedAtUtc DESC
-  ) = 1
-),
 lobby_physical AS (
   SELECT environment, telemetryPlayerId, contentVersion, releaseId, batchId,
     eventId, occurredAtUtc, rowIndex, eventKind, tab, shopSection,
@@ -224,7 +207,7 @@ transaction_deduped AS (
     transactionKind, pipelineKind, sourceCategory, operationId,
     CASE
       WHEN sourceCategory = 'FunFeedback'
-        AND transactionId = 'system.fun-feedback.uranium.2' THEN 'FunFeedbackReward'
+        AND transactionId = 'system.fun-feedback.uranium.2' THEN 'OtherSystemReward'
       WHEN sourceCategory IN ('WeaponRecipe', 'Evolution', 'StatReset') THEN 'ProgressionSpend'
       WHEN sourceCategory = 'RandomBox' THEN 'RandomBoxSpend'
       WHEN sourceCategory = 'IAP' OR transactionKind = 'Iap' THEN 'CommerceIap'
@@ -274,19 +257,6 @@ iap_deduped AS (
     PARTITION BY environment, eventId
     ORDER BY uploadedAtUtc DESC, batchId DESC, rowIndex DESC
   ) = 1
-),
-feedback_windowed AS (
-  SELECT
-    w.anchorKey, w.gameplayOutcome AS anchorOutcome, f.environment, f.runId,
-    f.eventId, f.eventKind, f.response, f.occurredAtUtc, f.telemetryPlayerId,
-    f.contentVersion, f.releaseId, f.uploadedAtUtc,
-    f.occurredAtUtc >= w.segmentEndedAtUtc AND f.occurredAtUtc < w.windowEndedAtUtc
-      AS inWindow,
-    f.contentVersion = @content_version AS sameContent,
-    f.releaseId IS NOT DISTINCT FROM w.releaseId AS sameRelease
-  FROM classified_windows AS w
-  JOIN feedback_deduped AS f
-    ON f.environment = w.environment AND f.runId = w.runId
 ),
 lobby_windowed AS (
   SELECT w.anchorKey, w.gameplayOutcome AS anchorOutcome, l.environment,
@@ -410,38 +380,7 @@ result_observation AS (
     ) AS hasObservedAttempt
   FROM transaction_results AS r
 ),
-feedback_cohorts AS (
-  SELECT
-    w.anchorKey,
-    CASE
-      WHEN ARRAY_AGG(IF(f.inWindow AND f.sameContent AND f.eventKind = 'Response',
-        f.response, NULL) IGNORE NULLS ORDER BY f.occurredAtUtc DESC, f.eventId DESC
-        LIMIT 1)[SAFE_OFFSET(0)] = 'Positive' THEN 'PositiveResponse'
-      WHEN ARRAY_AGG(IF(f.inWindow AND f.sameContent AND f.eventKind = 'Response',
-        f.response, NULL) IGNORE NULLS ORDER BY f.occurredAtUtc DESC, f.eventId DESC
-        LIMIT 1)[SAFE_OFFSET(0)] = 'Negative' THEN 'NegativeResponse'
-      WHEN COUNTIF(f.inWindow AND f.sameContent AND f.eventKind = 'Exposure') > 0
-        THEN 'ExposedNoResponse'
-      ELSE 'NotExposed'
-    END AS feedbackCohort,
-    COUNTIF(f.inWindow AND f.sameContent AND f.eventKind = 'Exposure') > 0 AS feedbackExposed,
-    COUNTIF(f.inWindow AND f.sameContent AND f.eventKind = 'Response') > 0 AS feedbackResponded,
-    COUNT(DISTINCT IF(f.inWindow AND f.sameContent AND f.eventKind = 'Response', f.response, NULL)) > 1
-      AS conflictingResponse
-  FROM classified_windows AS w
-  LEFT JOIN feedback_windowed AS f USING (anchorKey)
-  GROUP BY w.anchorKey
-),
 normalized_actions AS (
-  SELECT anchorKey, occurredAtUtc,
-    IF(eventKind = 'Exposure', 10, 100) AS domainPriority, 0 AS rowIndex, eventId,
-    IF(eventKind = 'Exposure', 'FeedbackExposure', CONCAT('Feedback', COALESCE(response, 'Unknown')))
-      AS observedAction,
-    IF(eventKind = 'Response' AND response IN ('Positive', 'Negative'), 'FeedbackResponse', NULL)
-      AS userAction,
-    sameContent, sameRelease
-  FROM feedback_windowed WHERE inWindow
-  UNION ALL
   SELECT anchorKey, occurredAtUtc, IF(eventKind = 'TabViewed', 20, 30), rowIndex, eventId,
     CASE WHEN eventKind = 'TabViewed' THEN CONCAT('TabViewed', COALESCE(tab, 'Unknown'))
       WHEN eventKind = 'ShopSectionViewed' THEN CONCAT('ShopSection', COALESCE(shopSection, 'Unknown'))
@@ -468,7 +407,7 @@ normalized_actions AS (
       WHEN analysisCategory IN ('CommerceShop', 'CommerceShopLegacy', 'CommerceIap') THEN 'CommerceAttempt'
       WHEN analysisCategory = 'ProgressionSpend' THEN 'Progression'
       WHEN analysisCategory = 'RandomBoxSpend' THEN 'RandomBox'
-      WHEN analysisCategory IN ('FunFeedbackReward', 'OtherSystemReward') THEN NULL
+      WHEN analysisCategory = 'OtherSystemReward' THEN NULL
       ELSE 'Other' END,
     sameContent, sameRelease
   FROM transaction_windowed

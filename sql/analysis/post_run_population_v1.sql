@@ -29,12 +29,6 @@ WITH
     COUNTIF(NOT sameRelease) AS crossReleaseActions,
     COUNTIF(STARTS_WITH(observedAction, 'Unrecognized:')) AS unrecognizedActionRows
   FROM normalized_actions
-), feedback_summary AS (
-  SELECT
-    COUNTIF(feedbackExposed) AS feedbackExposedWindows,
-    COUNTIF(feedbackResponded) AS feedbackRespondedWindows,
-    COUNTIF(conflictingResponse) AS conflictingFeedbackResponseWindows
-  FROM feedback_cohorts
 ), navigation_summary AS (
   SELECT
     COUNT(DISTINCT IF(
@@ -55,20 +49,12 @@ WITH
       eventKind = 'Result' AND resultCategory = 'Succeeded'
       AND analysisCategory IN ('CommerceShop', 'CommerceShopLegacy', 'CommerceIap')
       AND sameContent, anchorKey, NULL)) AS committedSuccessWindows,
-    COUNTIF(analysisCategory = 'FunFeedbackReward') AS funFeedbackRewardsExcluded,
+    COUNTIF(analysisCategory = 'OtherSystemReward') AS nonCommerceSystemRewardsExcluded,
     COUNTIF(analysisCategory = 'ProgressionSpend') AS progressionTransactionsExcluded
   FROM transaction_windowed
 ), progression_summary AS (
   SELECT COUNT(DISTINCT IF(sameContent, anchorKey, NULL)) AS progressionWindows
   FROM progression_windowed
-), feedback_quality AS (
-  SELECT
-    COUNTIF(eventKind = 'Response' AND NOT EXISTS (
-      SELECT 1 FROM feedback_windowed AS e
-      WHERE e.anchorKey = f.anchorKey AND e.eventKind = 'Exposure' AND e.inWindow
-    )) AS feedbackLinkMismatchRows,
-    COUNTIF(NOT inWindow OR NOT sameContent) AS feedbackOutsideWindowRows
-  FROM feedback_windowed AS f
 ), shop_quality AS (
   SELECT COUNTIF(eventKind = 'OfferSelected' AND NOT EXISTS (
     SELECT 1 FROM shop_windowed AS e
@@ -116,15 +102,12 @@ SELECT
   w.laterNextRunOutsideWindowWindows, w.missingPlayerIdentityAnchors,
   w.missingAnchorEndRows, w.nextOutcomePendingWindows,
   w.nextRunWithinWindowWindows,
-  f.feedbackExposedWindows, f.feedbackRespondedWindows,
   n.shopPresentedWindows, n.shopUserNavigatedWindows,
   c.commerceAttemptWindows, c.committedSuccessWindows, p.progressionWindows,
   a.windowsWithObservedAction, a.windowsWithUserAction,
   GREATEST(w.matureWindows - a.windowsWithObservedAction, 0) AS windowsWithoutObservedAction,
   GREATEST(w.matureWindows - n.windowsWithLobbyActivity, 0)
     AS windowsWithoutLobbyActivityObserved,
-  fq.feedbackLinkMismatchRows, fq.feedbackOutsideWindowRows,
-  f.conflictingFeedbackResponseWindows,
   (SELECT COUNT(*) FROM lobby_physical) AS physicalLobbyRows,
   (SELECT COUNT(*) FROM lobby_deduped) AS dedupedLobbyRows,
   (SELECT COUNT(*) FROM shop_physical) AS physicalShopRows,
@@ -140,15 +123,13 @@ SELECT
   tq.transactionAttemptWithoutResult, tq.transactionResultWithoutObservedAttempt,
   tq.committedSuccessWithoutObservedAttemptResults,
   tq.committedSuccessWithoutObservedAttemptWindows,
-  c.funFeedbackRewardsExcluded, c.progressionTransactionsExcluded,
+  c.nonCommerceSystemRewardsExcluded, c.progressionTransactionsExcluded,
   seq.sameTimestampActionGroups, a.unrecognizedActionRows
 FROM window_summary AS w
 CROSS JOIN action_summary AS a
-CROSS JOIN feedback_summary AS f
 CROSS JOIN navigation_summary AS n
 CROSS JOIN commerce_summary AS c
 CROSS JOIN progression_summary AS p
-CROSS JOIN feedback_quality AS fq
 CROSS JOIN shop_quality AS sq
 CROSS JOIN transaction_quality AS tq
 CROSS JOIN sequence_quality AS seq

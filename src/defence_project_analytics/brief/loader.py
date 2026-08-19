@@ -19,13 +19,20 @@ from defence_project_analytics.brief.models import (
 )
 from defence_project_analytics.brief.registry import (
     ANALYSIS_TO_DOMAIN,
-    REQUIRED_METRIC_KEYS,
+    required_metric_keys,
     required_tables,
 )
 from defence_project_analytics.reporting.models import REPORT_CONTRACT_VERSION
 
 
-SUPPORTED_ANALYSIS_VERSION = "1.0.0"
+SUPPORTED_ANALYSIS_VERSIONS = {
+    "stageDifficulty": frozenset({"1.0.0"}),
+    "weaponPerformance": frozenset({"1.0.0"}),
+    "upgradeChoice": frozenset({"1.0.0"}),
+    "progressionNextRun": frozenset({"1.0.0"}),
+    "postRunBehavior": frozenset({"1.0.0", "1.1.0"}),
+    "contentVersionCompare": frozenset({"1.0.0", "1.1.0"}),
+}
 FORBIDDEN_RAW_IDENTIFIERS = frozenset(
     {
         "telemetryPlayerId",
@@ -176,7 +183,8 @@ def load_source_bundle(
         raise AnalysisBriefError(
             f"Unsupported reportContractVersion: {metadata.get('reportContractVersion')!r}"
         )
-    if metadata.get("analysisVersion") != SUPPORTED_ANALYSIS_VERSION:
+    analysis_version = metadata.get("analysisVersion")
+    if analysis_version not in SUPPORTED_ANALYSIS_VERSIONS[analysis_type]:
         raise AnalysisBriefError(
             f"Unsupported analysisVersion for {analysis_type}: "
             f"{metadata.get('analysisVersion')!r}"
@@ -189,7 +197,7 @@ def load_source_bundle(
     for warning in metadata["warnings"]:
         if not isinstance(warning, dict) or not isinstance(warning.get("code"), str):
             raise AnalysisBriefError("Each source warning must contain a string code")
-    for key in REQUIRED_METRIC_KEYS[analysis_type]:
+    for key in required_metric_keys(analysis_type, str(analysis_version)):
         if key not in metrics:
             raise AnalysisBriefError(f"metrics.json is missing required key: {key}")
 
@@ -199,7 +207,9 @@ def load_source_bundle(
         item = _artifact(path, root)
         artifacts[item.relative_path] = item
     table_root = root / "tables"
-    for filename, required_columns in required_tables(analysis_type).items():
+    for filename, required_columns in required_tables(
+        analysis_type, str(analysis_version)
+    ).items():
         path = table_root / filename
         if not path.is_file():
             raise AnalysisBriefError(f"Required source table is missing: {filename}")

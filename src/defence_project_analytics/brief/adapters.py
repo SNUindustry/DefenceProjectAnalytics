@@ -23,6 +23,8 @@ from defence_project_analytics.brief.models import (
 )
 from defence_project_analytics.brief.registry import (
     COMPARISON_TABLES,
+    active_source_warning_codes,
+    is_evidence_metric_eligible,
     SUMMARY_METRICS,
     TABLE_EVIDENCE,
 )
@@ -58,11 +60,7 @@ def _clean(value: Any) -> Any:
 
 
 def _warnings(bundle: LoadedSourceBundle) -> tuple[str, ...]:
-    return tuple(
-        str(item["code"])
-        for item in bundle.metadata.get("warnings", ())
-        if isinstance(item, Mapping) and item.get("code")
-    )
+    return active_source_warning_codes(bundle.metadata.get("warnings", ()))
 
 
 def _artifact_hash(bundle: LoadedSourceBundle, relative_path: str) -> str:
@@ -132,6 +130,8 @@ def adapt_single_bundle(bundle: LoadedSourceBundle, mode: str) -> list[EvidenceC
     sample = dict(bundle.metadata.get("sample", {}))
     candidates: list[EvidenceCandidate] = []
     for registry_index, spec in enumerate(SUMMARY_METRICS[bundle.analysis_type]):
+        if not is_evidence_metric_eligible(bundle.domain, spec.family, spec.metric):
+            continue
         value, observed = _single_value(spec.value_type, _value(bundle.metrics, spec.path))
         status = "Unavailable" if not observed else ("Limited" if warnings else "Comparable")
         candidates.append(EvidenceCandidate(
@@ -173,6 +173,10 @@ def adapt_single_bundle(bundle: LoadedSourceBundle, mode: str) -> list[EvidenceC
                 None if dimension is None else str(row.get(dimension) or "")
             )
             for metric in table_spec.metrics:
+                if not is_evidence_metric_eligible(
+                    bundle.domain, table_spec.family, metric.metric
+                ):
+                    continue
                 value, observed = _table_value(metric, row)
                 status = "Unavailable" if not observed else ("Limited" if warnings else "Comparable")
                 candidates.append(EvidenceCandidate(
@@ -238,6 +242,9 @@ def adapt_comparison_bundle(bundle: LoadedSourceBundle) -> list[EvidenceCandidat
         for raw_row in frame.to_dict(orient="records"):
             row = {key: _clean(value) for key, value in raw_row.items()}
             metric = str(row.get("metric") or "")
+            metric_family = str(row.get("metricFamily") or "")
+            if not is_evidence_metric_eligible(domain, metric_family, metric):
+                continue
             entity_key = None if row.get("entityKey") is None else str(row["entityKey"])
             top = (metric, entity_key or "") in top_keys
             value = {
@@ -262,7 +269,7 @@ def adapt_comparison_bundle(bundle: LoadedSourceBundle) -> list[EvidenceCandidat
                 mode=COMPARISON_MODE,
                 source_analysis_type=bundle.analysis_type,
                 domain=domain,
-                metric_family=str(row.get("metricFamily") or ""),
+                metric_family=metric_family,
                 metric=metric,
                 entity_type=(None if row.get("entityType") is None else str(row.get("entityType"))),
                 entity_key=entity_key,

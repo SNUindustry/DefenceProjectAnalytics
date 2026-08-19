@@ -19,16 +19,14 @@ def post_run_frames() -> dict[str, pd.DataFrame]:
     population = {
         "anchorFinalRuns": 6, "uniquePlayers": 2, "clears": 0, "deaths": 6,
         "abandons": 0, "unrecognizedOutcomes": 0, "linkageEligibleWindows": 6,
-        "matureWindows": 6, "rightCensoredWindows": 0, "feedbackExposedWindows": 6,
-        "feedbackRespondedWindows": 4, "shopPresentedWindows": 3,
+        "matureWindows": 6, "rightCensoredWindows": 0, "shopPresentedWindows": 3,
         "shopUserNavigatedWindows": 2, "commerceAttemptWindows": 1,
         "committedSuccessWindows": 2, "progressionWindows": 1,
         "nextRunWithinWindowWindows": 4, "missingPlayerIdentityAnchors": 0,
         "missingAnchorEndRows": 0, "resolvedWindows": 4, "matureNoNextWindows": 2,
         "laterNextRunOutsideWindowWindows": 0, "windowsWithObservedAction": 6,
         "windowsWithUserAction": 5, "windowsWithoutObservedAction": 0,
-        "windowsWithoutLobbyActivityObserved": 0, "feedbackLinkMismatchRows": 0,
-        "feedbackOutsideWindowRows": 0, "conflictingFeedbackResponseWindows": 0,
+        "windowsWithoutLobbyActivityObserved": 0,
         "physicalLobbyRows": 10, "dedupedLobbyRows": 9, "physicalShopRows": 4,
         "dedupedShopRows": 4, "physicalTransactionRows": 4,
         "dedupedTransactionRows": 4, "physicalProgressionRows": 1,
@@ -38,29 +36,10 @@ def post_run_frames() -> dict[str, pd.DataFrame]:
         "transactionAttemptWithoutResult": 0, "transactionResultWithoutObservedAttempt": 1,
         "committedSuccessWithoutObservedAttemptResults": 1,
         "committedSuccessWithoutObservedAttemptWindows": 1,
-        "funFeedbackRewardsExcluded": 4, "progressionTransactionsExcluded": 1,
+        "nonCommerceSystemRewardsExcluded": 4, "progressionTransactionsExcluded": 1,
         "sameTimestampActionGroups": 1, "unrecognizedActionRows": 0,
         "nextOutcomePendingWindows": 0,
     }
-    feedback = pd.DataFrame([
-        {"anchorOutcome": "Dead", "feedbackCohort": "PositiveResponse", "windowCount": 1,
-         "shopPresentedCount": 1, "shopPresentedRate": 1.0, "shopUserNavigatedCount": 1,
-         "shopUserNavigatedRate": 1.0, "offerSelectedCount": 0, "offerSelectedRate": 0.0,
-         "commerceAttemptCount": 0, "commerceAttemptRate": 0.0,
-         "committedSuccessCount": 1, "committedSuccessWindowRate": 1.0,
-         "progressionCount": 0, "progressionRate": 0.0, "nextRunCount": 0,
-         "nextRunRate": 0.0, "timeToNextRunP25": None,
-         "timeToNextRunMedian": None, "timeToNextRunP75": None},
-        {"anchorOutcome": "Dead", "feedbackCohort": "NegativeResponse", "windowCount": 3,
-         "shopPresentedCount": 1, "shopPresentedRate": 1 / 3,
-         "shopUserNavigatedCount": 0, "shopUserNavigatedRate": 0.0,
-         "offerSelectedCount": 0, "offerSelectedRate": 0.0,
-         "commerceAttemptCount": 0, "commerceAttemptRate": 0.0,
-         "committedSuccessCount": 0, "committedSuccessWindowRate": 0.0,
-         "progressionCount": 1, "progressionRate": 1 / 3, "nextRunCount": 2,
-         "nextRunRate": 2 / 3, "timeToNextRunP25": 20.0,
-         "timeToNextRunMedian": 30.0, "timeToNextRunP75": 40.0},
-    ])
     navigation = pd.DataFrame([{
         "anchorOutcome": "Dead", "dimension": "Shop", "viewedWindows": 3,
         "viewedDenominator": 6, "viewedRate": 0.5, "userNavigatedWindows": 2,
@@ -87,7 +66,7 @@ def post_run_frames() -> dict[str, pd.DataFrame]:
         "committedSuccessWithoutObservedAttemptWindows": 1,
     }])
     sequence = pd.DataFrame([
-        {"rowType": "firstObserved", "anchorOutcome": "Dead", "fromAction": "FeedbackExposure",
+        {"rowType": "firstObserved", "anchorOutcome": "Dead", "fromAction": "TabViewedShop",
          "toAction": None, "actionCount": 6, "denominator": 6, "ratio": 1.0},
         {"rowType": "firstUser", "anchorOutcome": "Dead", "fromAction": "Shop",
          "toAction": None, "actionCount": 2, "denominator": 6, "ratio": 1 / 3},
@@ -95,7 +74,7 @@ def post_run_frames() -> dict[str, pd.DataFrame]:
          "toAction": "Battle", "actionCount": 2, "denominator": 2, "ratio": 1.0},
     ])
     return {
-        "population": pd.DataFrame([population]), "feedback": feedback,
+        "population": pd.DataFrame([population]),
         "navigation": navigation, "shopCommerce": shop,
         "progression": pd.DataFrame([{
             "anchorOutcome": "Dead", "progressionKind": "WeaponRecipe", "windowCount": 6,

@@ -23,6 +23,7 @@ from defence_project_analytics.brief.models import (
 )
 from defence_project_analytics.brief.renderers import evidence_payload, render_json
 from defence_project_analytics.reporting.renderers import to_external
+from defence_project_analytics.metric_registry import METRIC_REGISTRY_VERSION
 
 
 _SLUG = re.compile(r"[^a-z0-9]+")
@@ -63,6 +64,7 @@ def _manifest(
     return {
         "analysisBriefVersion": ANALYSIS_BRIEF_VERSION,
         "selectionPolicyVersion": SELECTION_POLICY_VERSION,
+        "metricRegistryVersion": METRIC_REGISTRY_VERSION,
         "generatedAtUtc": generated_at,
         "mode": brief.scope.mode,
         "scope": brief.scope,

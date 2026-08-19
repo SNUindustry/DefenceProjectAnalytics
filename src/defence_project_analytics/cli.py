@@ -293,7 +293,7 @@ def build_parser() -> argparse.ArgumentParser:
     analysis_validate.add_argument("--output-root", type=Path, default=Path("reports/generated"))
     analysis_validate.add_argument("--overwrite", action="store_true")
     analysis_run = subparsers.add_parser(
-        "analysis-run", help="Run C-2 through the native Anthropic Structured Outputs API"
+        "analysis-run", help="Run C-2 through the native Anthropic strict-tools API"
     )
     analysis_run.add_argument("--source-brief", type=Path, required=True)
     analysis_run.add_argument("--provider", choices=("anthropic",), default="anthropic")
@@ -347,6 +347,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         except AnalysisResponseValidationError as exc:
             metadata = getattr(provider, "last_run_metadata", {})
+            stages = metadata.get("stages", []) if isinstance(metadata, dict) else []
+            failed_stage = next(
+                (
+                    stage for stage in reversed(stages)
+                    if isinstance(stage, dict)
+                    and stage.get("validationStatus") == "failed"
+                ),
+                None,
+            )
+            stage_diagnostics = None
+            if failed_stage is not None:
+                stage_diagnostics = {
+                    key: failed_stage.get(key)
+                    for key in (
+                        "stage", "contextDigest", "schemaDigest", "requestDigest",
+                        "preflightInputTokens", "actualInputTokens", "actualOutputTokens",
+                        "tokenCountCallCount", "generationCallCount", "retryCount",
+                        "validationStatus", "safeRequestId", "stopReason",
+                        "expectedToolCount", "observedToolCount", "ignoredTextBlockCount",
+                    )
+                }
             print(json.dumps({
                 "errorCode": "ANALYSIS_RESPONSE_VALIDATION_FAILED",
                 "validationStatus": "Invalid",
@@ -356,7 +377,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "actualInputTokens": metadata.get("actualInputTokens"),
                 "actualOutputTokens": metadata.get("actualOutputTokens"),
                 "providerCallCount": metadata.get("providerCallCount"),
+                "providerTokenCountCallCount": metadata.get(
+                    "providerTokenCountCallCount"
+                ),
+                "providerGenerationCallCount": metadata.get(
+                    "providerGenerationCallCount"
+                ),
                 "providerRetryCount": metadata.get("providerRetryCount"),
+                "stageDiagnostics": stage_diagnostics,
             }, ensure_ascii=False, indent=2), file=sys.stderr)
             return 1
         except AnalysisProviderError as exc:
@@ -732,7 +760,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "anchorFinalRunCount": sample["anchorFinalRuns"],
                 "matureWindowCount": sample["matureWindows"],
                 "rightCensoredWindowCount": sample["rightCensoredWindows"],
-                "feedbackRespondedWindowCount": sample["feedbackRespondedWindows"],
                 "shopPresentedWindowCount": sample["shopPresentedWindows"],
                 "shopUserNavigatedWindowCount": sample["shopUserNavigatedWindows"],
                 "progressionWindowCount": sample["progressionWindows"],

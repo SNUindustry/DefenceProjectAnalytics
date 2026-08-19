@@ -21,7 +21,7 @@ def test_builds_profile_plus_all_selected_source_queries() -> None:
     queries, plans = build_content_version_comparison_queries(
         request, analysis_as_of_utc=NOW,
     )
-    assert len(queries) == 69
+    assert len(queries) == 67
     assert len(plans) == 10
     assert "profile" in queries
     assert all("CREATE " not in query.sql.upper() and "UPDATE " not in query.sql.upper() for query in queries.values())

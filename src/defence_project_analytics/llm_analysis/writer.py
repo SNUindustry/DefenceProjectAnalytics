@@ -13,6 +13,7 @@ import tempfile
 from typing import Any, Callable, Mapping
 
 from defence_project_analytics.brief.loader import FORBIDDEN_RAW_IDENTIFIERS
+from defence_project_analytics.brief.registry import HISTORICAL_ONLY_WARNING_CODES
 from defence_project_analytics.llm_analysis.loader import verify_source_brief_unchanged
 from defence_project_analytics.llm_analysis.policy import forbidden_private_text
 from defence_project_analytics.llm_analysis.models import (
@@ -28,16 +29,69 @@ from defence_project_analytics.llm_analysis.renderers import (
     render_analysis_markdown,
 )
 from defence_project_analytics.reporting.renderers import render_json, to_external
+from defence_project_analytics.metric_registry import (
+    METRIC_REGISTRY_VERSION,
+    is_decision_evidence_item,
+)
 
 
 _SLUG = re.compile(r"[^A-Za-z0-9-]+")
 _SAFE_PROVIDER_METADATA = frozenset({
+    "transportMode",
     "providerRequestDigest",
     "structuredOutputsUsed",
+    "anthropicStrictToolsUsed",
     "structuredOutputSchemaMode",
     "responseContractSchemaDigest",
     "anthropicWireSchemaDigest",
+    "anthropicPreflightWireSchemaDigest",
+    "anthropicGenerationWireSchemaDigest",
+    "anthropicInputProjectionVersion",
+    "anthropicEvidenceAliasVersion",
+    "evidenceAliasCount",
+    "evidenceAliasDigest",
+    "anthropicMetricAliasVersion",
+    "metricAliasCount",
+    "metricAliasDigest",
+    "warningAuthorityDigest",
+    "anthropicWarningAliasVersion",
+    "warningAliasCount",
+    "warningAliasDigest",
+    "anthropicFlatResponseVersion",
+    "anthropicSerializedEnvelopeVersion",
+    "anthropicStrictToolTransportVersion",
+    "anthropicThreeStageStrictToolTransportVersion",
+    "anthropicThreeStageStrictToolVersion",
+    "anthropicStageContextVersion",
+    "anthropicStageContextVersions",
+    "anthropicOutputRefVersion",
+    "anthropicStageBIdentityVersion",
+    "evidenceGapRefCount",
+    "evidenceGapRefDigest",
+    "observationRefCount",
+    "observationRefDigest",
+    "hypothesisRefCount",
+    "hypothesisRefDigest",
+    "changeCandidateRefCount",
+    "changeCandidateRefDigest",
+    "anthropicValidationPlanRefVersion",
+    "validationPlanRefCount",
+    "validationPlanRefDigest",
+    "anthropicToolsDigest",
+    "anthropicPreflightToolsDigest",
+    "anthropicGenerationToolsDigest",
+    "anthropicToolChoiceDigest",
+    "anthropicPreflightRequestDigest",
+    "anthropicGenerationRequestDigest",
+    "anthropicStrictToolsProfile",
+    "anthropicExpectedToolCount",
+    "anthropicObservedToolCount",
+    "anthropicIgnoredTextBlockCount",
+    "compactPayloadDigest",
+    "canonicalEvidenceDigest",
+    "compactEvidenceCount",
     "inputTokenCount",
+    "totalPreflightInputTokens",
     "actualInputTokens",
     "actualOutputTokens",
     "providerTokenCountCallCount",
@@ -45,6 +99,9 @@ _SAFE_PROVIDER_METADATA = frozenset({
     "providerErrorCount",
     "providerRetryCount",
     "configuredMaxTransportRetries",
+    "stageCount",
+    "stages",
+    "canonicalValidationPassed",
 })
 
 
@@ -90,12 +147,14 @@ def _install(
     *,
     overwrite: bool,
     same_target: Callable[[Path], bool],
+    final_check: Callable[[], None] | None = None,
 ) -> Path:
     if target.exists() and (not overwrite or not same_target(target)):
         raise FileExistsError(f"C-2 artifact target already exists: {target}")
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=f".{target.name}.", dir=target.parent))
     backup: Path | None = None
+    installed = False
     try:
         for filename, content in files.items():
             (temporary / filename).write_text(content, encoding="utf-8", newline="\n")
@@ -105,10 +164,15 @@ def _install(
                 raise FileExistsError(f"Atomic backup already exists: {backup}")
             target.rename(backup)
         temporary.rename(target)
+        installed = True
+        if final_check is not None:
+            final_check()
         if backup is not None:
             shutil.rmtree(backup, ignore_errors=True)
         return target
     except Exception:
+        if installed and target.exists():
+            target.rename(temporary)
         if temporary.exists():
             shutil.rmtree(temporary, ignore_errors=True)
         if backup is not None and backup.exists() and not target.exists():
@@ -131,6 +195,7 @@ def write_analysis_prompt(
         "analysisPolicyVersion": ANALYSIS_POLICY_VERSION,
         "promptTemplateVersion": PROMPT_TEMPLATE_VERSION,
         "responseContractVersion": RESPONSE_CONTRACT_VERSION,
+        "metricRegistryVersion": METRIC_REGISTRY_VERSION,
         "generatedAtUtc": generated_at,
         "requestId": package.request_id,
         "requestDigest": package.request_digest,
@@ -142,7 +207,10 @@ def write_analysis_prompt(
         "analysisObjective": package.request.analysis_objective,
         "outputLanguage": package.request.output_language,
         "promptCharacterCount": len(package.prompt),
-        "evidenceCount": len(package.source.evidence_by_id),
+        "evidenceCount": sum(
+            is_decision_evidence_item(item)
+            for item in package.source.evidence_by_id.values()
+        ),
         "providerCalls": 0,
         "cloudAccessPerformed": False,
         "sourceAnalyzersExecuted": False,
@@ -162,8 +230,8 @@ def write_analysis_prompt(
         same_target=lambda path: _same_manifest(
             path, "requestDigest", package.request_digest
         ),
+        final_check=lambda: verify_source_brief_unchanged(package.source),
     )
-    verify_source_brief_unchanged(package.source)
     return result
 
 
@@ -226,6 +294,7 @@ def write_validated_analysis(
         str(item.get("code"))
         for item in package.source.brief.get("criticalWarnings", [])
         if isinstance(item, dict) and item.get("code")
+        and item.get("code") not in HISTORICAL_ONLY_WARNING_CODES
     )
     markdown = render_analysis_markdown(
         analysis,
@@ -241,6 +310,7 @@ def write_validated_analysis(
         "analysisPolicyVersion": ANALYSIS_POLICY_VERSION,
         "promptTemplateVersion": PROMPT_TEMPLATE_VERSION,
         "responseContractVersion": RESPONSE_CONTRACT_VERSION,
+        "metricRegistryVersion": METRIC_REGISTRY_VERSION,
         "generatedAtUtc": generated_at,
         "analysisExecutionId": execution_id,
         "sourceBriefIdentity": package.source.identity,
@@ -291,6 +361,6 @@ def write_validated_analysis(
         same_target=lambda path: _same_manifest(
             path, "normalizedAnalysisDigest", analysis.normalized_analysis_digest
         ),
+        final_check=lambda: verify_source_brief_unchanged(package.source),
     )
-    verify_source_brief_unchanged(package.source)
     return result

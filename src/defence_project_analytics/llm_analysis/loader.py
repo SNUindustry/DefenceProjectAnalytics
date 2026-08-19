@@ -165,7 +165,7 @@ def load_analysis_brief(
         raise SourceBriefValidationError("evidence.json analysisBriefVersion mismatch")
     if manifest.get("analysisBriefVersion") != ANALYSIS_BRIEF_VERSION:
         raise SourceBriefValidationError("manifest analysisBriefVersion mismatch")
-    if manifest.get("selectionPolicyVersion") != SELECTION_POLICY_VERSION:
+    if manifest.get("selectionPolicyVersion") not in {"1.0.0", SELECTION_POLICY_VERSION}:
         raise SourceBriefValidationError("Unsupported selectionPolicyVersion")
     mode = brief.get("mode")
     if mode not in VALID_MODES or manifest.get("mode") != mode:

@@ -21,9 +21,12 @@ def test_post_run_report_is_aggregate_only_and_uses_stable_contract(tmp_path) ->
     metrics = json.loads((path / "metrics.json").read_text(encoding="utf-8"))
     assert path.name.startswith("Test__all-stages__cv-4__")
     assert metadata["analysisType"] == "postRunBehavior"
+    assert metadata["analysisVersion"] == "1.1.0"
     assert metadata["reportContractVersion"] == "1.0.0"
     assert metrics["navigation"]["shopPresentedWindows"] == 3
     assert metrics["navigation"]["shopUserNavigatedWindows"] == 2
+    assert "feedback" not in metrics
+    assert not (path / "tables" / "post_run_feedback_behavior.csv").exists()
     commerce_csv = (path / "tables" / "post_run_commerce.csv").read_text(encoding="utf-8")
     assert "observedAttemptSuccessRate" in commerce_csv
     assert "committedSuccessWindowRate" in commerce_csv
@@ -33,6 +36,7 @@ def test_post_run_report_is_aggregate_only_and_uses_stable_contract(tmp_path) ->
         "presentationId", "batchId", "uploadId",
     ):
         assert forbidden not in combined
+    assert "FeedbackResponse" not in combined
     for forbidden in ("recommendation", "nerf", "buff", "retention", "churn rate"):
         assert forbidden not in combined.casefold()
 

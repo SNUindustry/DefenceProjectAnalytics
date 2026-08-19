@@ -545,8 +545,6 @@ class PostRunSampleSummary:
     linkage_eligible_windows: int
     mature_windows: int
     right_censored_windows: int
-    feedback_exposed_windows: int
-    feedback_responded_windows: int
     shop_presented_windows: int
     shop_user_navigated_windows: int
     commerce_attempt_windows: int
@@ -566,9 +564,6 @@ class PostRunDataQuality:
     windows_with_user_action: int
     windows_without_observed_action: int
     windows_without_lobby_activity_observed: int
-    feedback_link_mismatch_rows: int
-    feedback_outside_window_rows: int
-    conflicting_feedback_response_windows: int
     physical_lobby_rows: int
     deduped_lobby_rows: int
     physical_shop_rows: int
@@ -587,7 +582,7 @@ class PostRunDataQuality:
     transaction_result_without_observed_attempt: int
     committed_success_without_observed_attempt_results: int
     committed_success_without_observed_attempt_windows: int
-    fun_feedback_rewards_excluded: int
+    non_commerce_system_rewards_excluded: int
     progression_transactions_excluded: int
     same_timestamp_action_groups: int
     unrecognized_action_rows: int
@@ -606,8 +601,6 @@ class PostRunReportDefinitions:
     observed_attempt_success_rate: str
     committed_success_window_rate: str
     post_run_behavior_association_is_causal: bool = False
-    feedback_behavior_association_is_causal: bool = False
-    feedback_exposure_is_universal: bool = False
     programmatic_navigation_means_user_interest: bool = False
     no_next_run_within_window_means_churn: bool = False
     notes: tuple[str, ...] = ()
@@ -695,7 +688,6 @@ class ActionSequenceMetrics:
 class PostRunBehaviorMetrics:
     sample: PostRunSampleSummary
     window: PostRunWindowMetrics
-    feedback: FeedbackBehaviorMetrics
     navigation: NavigationMetrics
     shop: ShopFunnelMetrics
     commerce: CommerceMetrics

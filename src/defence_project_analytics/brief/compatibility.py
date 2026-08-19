@@ -16,7 +16,11 @@ from defence_project_analytics.brief.models import (
     LoadedSourceBundle,
     SnapshotCompatibility,
 )
-from defence_project_analytics.brief.registry import SINGLE_ANALYSIS_TYPES, STAGE_ANALYSIS_TYPES
+from defence_project_analytics.brief.registry import (
+    SINGLE_ANALYSIS_TYPES,
+    STAGE_ANALYSIS_TYPES,
+    active_source_warning_codes,
+)
 
 
 WARNING_PRIORITY = (
@@ -145,7 +149,9 @@ def initial_brief_warnings(
                 {"missingDomains": missing},
             ))
     source_warning_domains = tuple(
-        item.domain for item in sources if item.metadata.get("warnings")
+        item.domain
+        for item in sources
+        if active_source_warning_codes(item.metadata.get("warnings", ()))
     )
     if source_warning_domains:
         warnings.append(BriefWarning(

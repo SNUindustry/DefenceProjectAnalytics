@@ -19,7 +19,8 @@ def test_post_run_queries_are_read_only_aggregate_and_share_snapshot() -> None:
         post_run_max_gap_minutes=30,
     )
     queries = build_post_run_behavior_queries(request, analysis_as_of_utc=AS_OF)
-    assert len(queries) == 7
+    assert len(queries) == 6
+    assert "feedback" not in queries
     for query in queries.values():
         assert "@include" not in query.sql
         assert not re.search(r"\bSELECT\s+(?:[A-Za-z_]+\.)?\*", query.sql, re.IGNORECASE)
@@ -50,5 +51,7 @@ def test_commerce_attempt_and_durable_result_denominators_are_separate() -> None
     assert "observedAttemptSuccessRate" in sql
     assert "committedSuccessWindowRate" in sql
     assert "resultCategory = 'Succeeded' AND NOT hasObservedAttempt" in sql
-    assert "FunFeedbackReward" in sql
+    assert "sourceCategory = 'FunFeedback'" in sql
+    assert "system.fun-feedback.uranium.2" in sql
+    assert "OtherSystemReward" in sql
     assert "ProgressionSpend" in sql

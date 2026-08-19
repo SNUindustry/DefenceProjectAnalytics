@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from enum import Enum
+from typing import Any, Mapping
 
 
 STAGE = "stageDifficulty"
@@ -11,6 +12,19 @@ WEAPON = "weaponPerformance"
 UPGRADE = "upgradeChoice"
 PROGRESSION = "progressionNextRun"
 POST_RUN = "postRunBehavior"
+METRIC_REGISTRY_VERSION = "1.1.0"
+
+
+class MetricLifecycle(str, Enum):
+    """Decision lifecycle for stable metric identities.
+
+    Historical-only metrics remain parseable so finalized artifacts can be read,
+    but they cannot participate in newly generated comparisons, evidence, or
+    decisions.
+    """
+
+    ACTIVE = "Active"
+    HISTORICAL_ONLY = "HistoricalOnly"
 
 
 COMPARISON_SUMMARY_SPECS: Mapping[
@@ -140,3 +154,61 @@ def known_metric_keys() -> frozenset[tuple[str, str, str]]:
                 (domain, table.metric_family, metric[0]) for metric in table.metrics
             )
     return frozenset(result)
+
+
+def metric_lifecycle(key: tuple[str, str, str]) -> MetricLifecycle:
+    if key[0] == POST_RUN and key[1] == "feedback":
+        return MetricLifecycle.HISTORICAL_ONLY
+    return MetricLifecycle.ACTIVE
+
+
+def _eligible_metric_keys() -> frozenset[tuple[str, str, str]]:
+    return frozenset(
+        key for key in known_metric_keys()
+        if metric_lifecycle(key) is MetricLifecycle.ACTIVE
+    )
+
+
+def comparison_metric_keys() -> frozenset[tuple[str, str, str]]:
+    return _eligible_metric_keys()
+
+
+def evidence_metric_keys() -> frozenset[tuple[str, str, str]]:
+    return _eligible_metric_keys()
+
+
+def decision_metric_keys() -> frozenset[tuple[str, str, str]]:
+    return _eligible_metric_keys()
+
+
+def target_metric_keys() -> frozenset[tuple[str, str, str]]:
+    return _eligible_metric_keys()
+
+
+def is_decision_evidence_item(item: Mapping[str, Any]) -> bool:
+    key = (
+        str(item.get("domain") or ""),
+        str(item.get("metricFamily") or ""),
+        str(item.get("metric") or ""),
+    )
+    return key in decision_metric_keys()
+
+
+def comparison_summary_specs(
+    domain: str,
+) -> tuple[tuple[str, str, str, str, str], ...]:
+    return tuple(
+        spec for spec in COMPARISON_SUMMARY_SPECS.get(domain, ())
+        if metric_lifecycle((domain, spec[0], spec[1])) is MetricLifecycle.ACTIVE
+    )
+
+
+def comparison_table_specs(domain: str) -> tuple[ComparisonTableSpec, ...]:
+    return tuple(
+        spec for spec in COMPARISON_TABLE_SPECS.get(domain, ())
+        if all(
+            metric_lifecycle((domain, spec.metric_family, metric[0]))
+            is MetricLifecycle.ACTIVE
+            for metric in spec.metrics
+        )
+    )

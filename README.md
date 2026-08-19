@@ -233,7 +233,7 @@ The seven queries are dry-run together before execution and use the shared 1GB d
 
 ## 9. Post-Run Behavior report
 
-Post-Run Behavior anchors one analytical window at each final attempt and observes feedback,
+Post-Run Behavior `1.1.0` anchors one analytical window at each final attempt and observes
 lobby presentation, user navigation, shop/offer activity, economy events, progression, and the
 next new gameplay attempt. It does not reconstruct an application session.
 
@@ -246,7 +246,7 @@ defence-analytics post-run-behavior `
 
 Optional anchor filters include `--stage-key`, `--final-outcome`, app/release fields,
 run-ended bounds, and ingestion bounds. Supporting activity uses the resolved as-of snapshot
-rather than the anchor ingestion interval. The seven aggregate queries share a 1GB default
+rather than the anchor ingestion interval. The six aggregate queries share a 1GB default
 dry-run gate.
 
 ```python
@@ -268,7 +268,7 @@ generated_path = generate_post_run_behavior_report(request)
 - `shopPresentedWindows` records a Shop tab or section presentation. `shopUserNavigatedWindows` requires `TabViewed(tab='Shop', navigationSource='User')`; a section presentation alone never establishes user navigation or a direct section click.
 - `observedAttemptSuccessRate` is linked Succeeded results divided by observed best-effort commerce Attempt operations.
 - `committedSuccessWindowRate` is durable Succeeded-result presence divided by relevant mature windows. A missing best-effort Attempt does not change the durable Result fact.
-- Fun Feedback Uranium rewards and progression spends are excluded from both commerce metrics.
+- Non-commerce system rewards, including historical Fun Feedback rewards, and progression spends are excluded from both commerce metrics.
 - Initial and programmatic navigation are presentations, not user intent. Best-effort event absence does not prove behavior absence.
 - No next new attempt observed within the window is not churn; offline or later-uploaded gameplay may appear in a later as-of snapshot.
 
@@ -386,6 +386,16 @@ actionability is `HumanReviewCandidate`, which is a human-reviewed experiment ca
 authorizes a production change or deployment. See
 [docs/llm-analysis-contract.md](docs/llm-analysis-contract.md).
 
+`ChangeCandidate.risks` may describe prospective or uncertain adverse consequences, but cannot
+state them as established causal facts. Numeric-free and privacy checks still apply independently.
+Validated non-empty risks are shown in `analysis.md` between the candidate rationale and its
+remaining review details. Analysis request bundles require the current semantic-policy and prompt
+template versions and are not silently revalidated under a newer policy.
+
+`EvidenceGap.question` and `whyItMatters` may frame causality only as an unresolved investigation
+or validation need. They still cannot state that one factor caused an observed outcome, and all
+numeric, citation, privacy, and quality protections remain unchanged.
+
 ### Anthropic API workflow
 
 Install the project dependencies and expose the credential to the process that runs the CLI. The
@@ -395,27 +405,81 @@ repository file, `.env`, report, or log.
 ```powershell
 defence-analytics analysis-run `
   --source-brief reports/generated/analysis-brief/<scope-id> `
-  --provider anthropic
+  --provider anthropic `
+  --model claude-opus-5
 ```
 
-The default model is `claude-opus-5`; override it with `--model`. The default non-streaming output
-cap is 20,000 tokens. The command first sends the exact
-system/user/schema request to Anthropic token counting, then performs one Structured Outputs
-generation and passes the returned JSON through the existing strict C-2 validator. The provider
-does not fall back to unconstrained text, repair invalid JSON, trim C-1 evidence, or retry a local
-schema/citation/policy failure. Transport retries are bounded and recorded.
+`claude-opus-5` is the production/default model and the semantic authority for final C-2A live
+acceptance. A failure from another model is diagnostic evidence about that model's compliance; it
+does not by itself authorize prompt tuning or relaxation of the canonical validator. Final
+acceptance uses one explicit Opus run with no semantic regeneration, repair, fallback, or automatic
+resume. The default non-streaming output cap is 20,000 tokens per stage. The command runs three
+sequential strict-tool stages: observations,
+interpretations, and evidence gaps; then hypotheses and change candidates; then validation plans
+and executive summary. Each stage first sends its exact system/user/tools/tool-choice request to
+Anthropic token counting and must remain below 60,000 input tokens. The provider
+does not fall back to unconstrained text, repair invalid JSON, trim C-1 evidence, retry generation,
+or retry a local schema/citation/policy failure. Token-preflight retries are bounded and recorded.
+Failure in one stage prevents every later stage and no partial artifact is written.
 
-The Anthropic wire schema contains the seven analysis sections as structured object/array fields.
-It enforces provider-supported structure, required fields, enums, and nested rollback-indicator
-shapes. Anthropic-unsupported constraints such as `maxItems` and string-length limits remain in the
-canonical contract and prompt guidance but are removed from the wire schema; the unchanged strict
-local validator is their final enforcement authority. Source identity, analysis version, and
-comparison direction are not model-generated fields: the host projects their canonical values from
-the validated C-1 package before validation. Token counting and generation use the same transformed
-wire schema. The schema mode and canonical/wire schema digests are recorded in the final manifest.
+The Anthropic request uses a deterministic compact projection of the canonical C-1 bundle. It keeps
+every selected evidence row and row locator while factoring repeated bundle/artifact provenance and
+quality-warning sets into dictionaries. Stage A/B replace canonical Evidence IDs with deterministic
+integer references `1..N`, constrained by exact strict-tool enums. Stage A output uses the same alias
+namespace when supplied to Stage B. The host restores canonical IDs before validation, and neither
+aliases nor the mapping appear in `analysis.json` or `analysis.md`. The canonical `brief.json` and
+`evidence.json` remain the stored and validation authority; compact transport data is not written
+back to C-1.
 
-The final manifest and stdout record the preflight input token count, actual input/output usage,
-model, provider call count, and retry count. They never contain the API key or raw provider response.
+In Anthropic Stage B, the model selects only `counterEvidenceRefs`. After exact alias inversion,
+the host derives `FoundInSuppliedBrief` for a non-empty list and
+`NotIdentifiedInSuppliedBrief` for an empty list. Empty means only that no counter evidence was
+identified in the supplied C-1 brief; it does not assert absence in omitted, external, or future
+evidence. Canonical responses and manual/scripted providers still contain both fields, and the
+unchanged validator rechecks their invariant.
+
+The seven section tools are partitioned 3/2/2 across the stages. Every tool input is a required-only
+flat DTO object with `additionalProperties=false`; no stage schema contains optional properties,
+`anyOf`, or nullable fields. Stage A and B receive all compact Evidence rows. Stage C receives no raw
+Evidence or Evidence references: it receives only the non-citation portion of validated A/B output,
+brief constraints, and an exact metric catalog. Stage B/C metric output paths use deterministic
+integer aliases derived from the shared registry, including target, expected-direction, watch,
+guardrail, and rollback metrics. The host inverse-maps them before the existing validator; aliases
+and their mapping are not written to analysis artifacts. The nullable Change Target metric is a
+required scalar provider field: `0` means no target metric and `1..M` selects one exact metric alias.
+It is not represented as an array and is never truncated.
+Expected metric/direction output and rollback metric/condition output are required-only structured
+items rather than independent parallel arrays. This makes a schema-valid pair-length mismatch
+unrepresentable while preserving the canonical object shapes after host reconstruction.
+Stage C uses a request-local integer `validationPlanRef` catalog derived from validated Stage B
+candidate/plan links. Stage B returns ordered hypothesis and candidate rows without canonical IDs;
+the host assigns `HYP`, `CHG`, and unique `VAL` IDs, while Claude selects only semantic plan presence.
+Stage B gap links and Stage C executive-summary selections use exact request-local integer refs, so
+Claude does not copy artifact-local ID strings. Stage C selects each validation-plan ref exactly once
+and supplies validation content, while the host restores canonical links. The provider wire schema
+omits unsupported array `maxItems` constraints; exact missing/duplicate/extra plan-ref coverage stays
+fail-closed in host reconstruction. Analysis names, minimum
+evidence requirements, comparison plans, and rollback conditions are closed canonical enums; the
+transport cannot invent spellings, sample counts, or rollback labels, and the canonical validators
+still recheck the reconstructed plan.
+Within each stage, tool order is not authoritative and the host rejects missing, duplicate, unknown,
+or additional calls. A stage collector reconstructs only its sections; shared validator primitives
+perform early semantic validation, while the unchanged full C-2 validator remains final authority
+after deterministic merge and host identity injection. Plain assistant text is ignored and never
+stored. Each stage's token count and generation use identical prepared request data and verified
+digests. The final manifest records safe per-stage schema/context/request digests and usage totals.
+
+Allowed warning references are collected from the same compact C-1 context visible to the model:
+critical warnings, domain/source-status warnings, and selected Evidence warnings. Matching is exact
+and case-sensitive. Stage A/B expose those warnings once through a compact catalog and require
+request-local integer warning refs in tool output; the host restores canonical codes before the
+existing validator runs. Unknown warning codes therefore cannot be generated through a
+schema-valid provider reference. Evidence Gaps use their field-specific investigation policy:
+unresolved causal questions are allowed, while established causal claims remain rejected.
+
+On an unretried success the provider performs three token-count calls and three generations. The
+final manifest and stdout record aggregate and per-stage token usage, model, provider call count,
+and retry count. They never contain the API key, raw provider response, or tool arguments.
 `analysis-prompt` and `analysis-validate` remain supported for manual use. Anthropic execution does
 not authorize Unity edits, balance changes, commits, releases, or deployment.
 
@@ -500,7 +564,6 @@ report.md
 metrics.json
 metadata.json
 tables/post_run_navigation.csv
-tables/post_run_feedback_behavior.csv
 tables/post_run_shop_funnel.csv
 tables/post_run_commerce.csv
 tables/post_run_progression.csv
@@ -510,6 +573,9 @@ tables/post_run_next_run.csv
 Post-run artifacts distinguish presentation from user navigation and observed Attempt resolution
 from durable committed-result presence. They contain aggregate dimensions only and never raw
 player, attempt, run, event, operation, presentation, batch, or upload identifiers.
+
+Feedback metrics are historical-only after Phase R1. Existing `1.0.0` bundles remain readable,
+but new B-5/B-6/C-1/C-2 outputs do not use feedback as comparison evidence or decision authority.
 
 For ContentVersion Comparison, provide:
 

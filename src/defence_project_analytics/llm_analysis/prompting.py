@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -26,22 +27,77 @@ from defence_project_analytics.llm_analysis.models import (
     AnalysisPromptRequest,
 )
 from defence_project_analytics.reporting.renderers import to_external
+from defence_project_analytics.brief.registry import HISTORICAL_ONLY_WARNING_CODES
+from defence_project_analytics.metric_registry import is_decision_evidence_item
+from defence_project_analytics.metric_registry import METRIC_REGISTRY_VERSION
+
+
+def _decision_brief(value: Mapping[str, Any]) -> Mapping[str, Any]:
+    brief = deepcopy(dict(value))
+    critical = brief.get("criticalWarnings")
+    if isinstance(critical, list):
+        brief["criticalWarnings"] = [
+            item for item in critical
+            if not isinstance(item, Mapping)
+            or item.get("code") not in HISTORICAL_ONLY_WARNING_CODES
+        ]
+    constraints = brief.get("interpretationConstraints")
+    if isinstance(constraints, list):
+        brief["interpretationConstraints"] = [
+            item for item in constraints
+            if not isinstance(item, str) or "feedback" not in item.casefold()
+        ]
+    return brief
+
+
+def _decision_evidence_document(value: Mapping[str, Any]) -> Mapping[str, Any]:
+    evidence = deepcopy(dict(value))
+    items = evidence.get("evidenceItems")
+    if isinstance(items, list):
+        evidence["evidenceItems"] = [
+            item for item in items
+            if isinstance(item, Mapping) and is_decision_evidence_item(item)
+        ]
+    return evidence
+
+
+def _decision_source_payload(source: Any) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
+    evidence = _decision_evidence_document(source.evidence)
+    eligible_ids = {
+        str(item.get("evidenceId"))
+        for item in evidence.get("evidenceItems", ())
+        if isinstance(item, Mapping) and item.get("evidenceId")
+    }
+    brief = dict(_decision_brief(source.brief))
+    priority = brief.get("priorityEvidenceIds")
+    if isinstance(priority, list):
+        brief["priorityEvidenceIds"] = [item for item in priority if item in eligible_ids]
+    core = brief.get("coreEvidenceIdsByDomain")
+    if isinstance(core, Mapping):
+        brief["coreEvidenceIdsByDomain"] = {
+            key: [item for item in items if item in eligible_ids]
+            for key, items in core.items()
+            if isinstance(items, list)
+        }
+    return brief, evidence
 
 
 def _request_material(request: AnalysisPromptRequest, source: Any) -> Mapping[str, Any]:
+    brief, evidence = _decision_source_payload(source)
     return {
         "analysisVersion": ANALYSIS_VERSION,
         "analysisPolicyVersion": ANALYSIS_POLICY_VERSION,
         "promptTemplateVersion": PROMPT_TEMPLATE_VERSION,
         "responseContractVersion": RESPONSE_CONTRACT_VERSION,
+        "metricRegistryVersion": METRIC_REGISTRY_VERSION,
         "sourceBriefIdentity": source.identity,
         "sourceBriefPortablePath": source.portable_path,
         "sourceArtifacts": source.artifacts,
         "analysisObjective": request.analysis_objective,
         "outputLanguage": request.output_language,
         "maxPromptCharacters": request.max_prompt_characters,
-        "brief": source.brief,
-        "evidence": source.evidence,
+        "brief": brief,
+        "evidence": evidence,
     }
 
 
@@ -113,6 +169,8 @@ def _response_contract() -> str:
 }
 Use a validation plan for every Experiment, BalanceChange, UXChange, or TelemetryChange candidate,
 and link it one-to-one through validationPlanId. Investigate and CollectMoreData candidates may omit it.
+ChangeCandidate risks describe possible adverse consequences or uncertainties of the proposed change.
+Use prospective, uncertain wording for risks and do not state a causal consequence as established or certain.
 Return no more than 10 observations, 5 interpretations, 5 hypotheses, 5 evidence gaps, 5 change
 candidates, and 5 validation plans. Each executiveSummary ID list may contain no more than 3 IDs.
 Return no more than 10 rollback indicators per validation plan. Every rollbackIndicators item
@@ -150,6 +208,8 @@ def _render_prompt(material: Mapping[str, Any]) -> str:
         "NotIdentifiedInSuppliedBrief means only that no contradiction was identified in this selected brief. "
         "It never proves contradictory evidence does not exist. "
         "All factual observations must cite supplied Evidence IDs. "
+        "Evidence gaps may discuss a possible causal relationship only as an unresolved question, "
+        "uncertainty, or validation need; they must not state it as an established fact. "
         "The comparison direction is candidate minus baseline. "
         f"Write qualitative prose in {language_text}. Stable IDs and enums remain English.\n\n"
         "# Response Contract\n\n"
@@ -211,6 +271,18 @@ def load_analysis_prompt_package(
         raise SourceBriefValidationError(f"Invalid analysis request package: {exc}") from exc
     if not isinstance(request_payload, dict) or not isinstance(manifest, dict):
         raise SourceBriefValidationError("Analysis request JSON artifacts must be objects")
+    expected_versions = {
+        "analysisVersion": ANALYSIS_VERSION,
+        "analysisPolicyVersion": ANALYSIS_POLICY_VERSION,
+        "promptTemplateVersion": PROMPT_TEMPLATE_VERSION,
+        "responseContractVersion": RESPONSE_CONTRACT_VERSION,
+        "metricRegistryVersion": METRIC_REGISTRY_VERSION,
+    }
+    for field, expected in expected_versions.items():
+        if request_payload.get(field) != expected or manifest.get(field) != expected:
+            raise SourceBriefValidationError(
+                f"Incompatible analysis request {field}: expected {expected}"
+            )
     prompt_digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
     if prompt_digest != request_payload.get("promptDigest") or prompt_digest != manifest.get("promptDigest"):
         raise SourceBriefValidationError("Analysis request promptDigest is invalid")
@@ -239,7 +311,8 @@ def load_analysis_prompt_package(
     expected_artifacts = request_payload.get("sourceArtifacts")
     if to_external(source.artifacts) != expected_artifacts:
         raise SourceBriefMutationError("SOURCE_BRIEF_MUTATED: source artifact bytes changed")
-    if source.brief != request_payload.get("brief") or source.evidence != request_payload.get("evidence"):
+    expected_brief, expected_evidence = _decision_source_payload(source)
+    if expected_brief != request_payload.get("brief") or expected_evidence != request_payload.get("evidence"):
         raise SourceBriefMutationError("SOURCE_BRIEF_MUTATED: semantic source payload changed")
     request = AnalysisPromptRequest(
         source_brief_path=source.path,

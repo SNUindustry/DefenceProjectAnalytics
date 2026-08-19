@@ -9,7 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
-from defence_project_analytics.metric_registry import COMPARISON_TABLE_SPECS
+from defence_project_analytics.metric_registry import (
+    COMPARISON_TABLE_SPECS,
+    evidence_metric_keys,
+)
 
 
 ANALYSIS_TO_DOMAIN = {
@@ -24,6 +27,23 @@ SINGLE_ANALYSIS_TYPES = frozenset(ANALYSIS_TO_DOMAIN) - {"contentVersionCompare"
 STAGE_ANALYSIS_TYPES = frozenset(
     ("stageDifficulty", "weaponPerformance", "upgradeChoice")
 )
+HISTORICAL_ONLY_WARNING_CODES = frozenset({
+    "FEEDBACK_LINK_MISMATCH",
+    "LOW_FEEDBACK_SAMPLE",
+    "FUN_FEEDBACK_REWARD_EXCLUDED_FROM_COMMERCE",
+})
+
+
+def active_source_warning_codes(warnings: object) -> tuple[str, ...]:
+    if not isinstance(warnings, (list, tuple)):
+        return ()
+    return tuple(
+        str(item["code"])
+        for item in warnings
+        if isinstance(item, Mapping)
+        and item.get("code")
+        and item["code"] not in HISTORICAL_ONLY_WARNING_CODES
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,7 +240,18 @@ REQUIRED_METRIC_KEYS["contentVersionCompare"] = (
 )
 
 
-def required_tables(analysis_type: str) -> Mapping[str, tuple[str, ...]]:
+def required_metric_keys(
+    analysis_type: str, analysis_version: str
+) -> tuple[str, ...]:
+    keys = REQUIRED_METRIC_KEYS[analysis_type]
+    if analysis_type == "postRunBehavior" and analysis_version == "1.1.0":
+        return tuple(key for key in keys if key != "feedback")
+    return keys
+
+
+def required_tables(
+    analysis_type: str, analysis_version: str = "1.0.0"
+) -> Mapping[str, tuple[str, ...]]:
     if analysis_type == "contentVersionCompare":
         result = {
             filename: COMPARISON_REQUIRED_COLUMNS
@@ -231,7 +262,7 @@ def required_tables(analysis_type: str) -> Mapping[str, tuple[str, ...]]:
             "absoluteDelta", "status", "warningCodes",
         )
         return result
-    return {
+    result = {
         filename: tuple(dict.fromkeys((*spec.keys, *(
             column
             for metric in spec.metrics
@@ -244,3 +275,10 @@ def required_tables(analysis_type: str) -> Mapping[str, tuple[str, ...]]:
         ))))
         for filename, spec in TABLE_EVIDENCE.get(analysis_type, {}).items()
     }
+    if analysis_type == "postRunBehavior" and analysis_version == "1.1.0":
+        result.pop("post_run_feedback_behavior.csv", None)
+    return result
+
+
+def is_evidence_metric_eligible(domain: str, family: str, metric: str) -> bool:
+    return (domain, family, metric) in evidence_metric_keys()

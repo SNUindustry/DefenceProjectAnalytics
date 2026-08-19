@@ -5,6 +5,7 @@ from pathlib import Path
 
 from defence_project_analytics import cli
 from defence_project_analytics.llm_analysis.provider_errors import (
+    AnthropicFlatReconstructionError,
     AnthropicRequestValidationError,
 )
 from llm_analysis_fixtures import make_package, valid_response
@@ -143,3 +144,60 @@ def test_analysis_run_cli_reports_sanitized_provider_diagnostics(
     assert payload["providerGenerationCallCount"] == 1
     assert payload["providerRetryCount"] == 0
     assert payload["providerDiagnostics"]["errorCategory"] == "schemaComplexity"
+
+
+def test_analysis_run_cli_reports_structural_reconstruction_diagnostics_only(
+    tmp_path: Path, monkeypatch, capsys,
+) -> None:
+    source, _ = make_package(tmp_path)
+    marker = "SECRET-PROVIDER-PAYLOAD-MARKER"
+
+    class FailedProvider:
+        provider_name = "anthropic"
+        model_name = "claude-opus-5"
+        last_run_metadata = {
+            "providerCallCount": 4,
+            "providerTokenCountCallCount": 2,
+            "providerGenerationCallCount": 2,
+            "providerErrorCount": 0,
+            "providerRetryCount": 0,
+            "inputTokenCount": 109_375,
+            "actualInputTokens": 109_375,
+            "actualOutputTokens": 11_204,
+        }
+
+        def __init__(self, **_kwargs):
+            pass
+
+        def generate(self, _prompt):
+            raise AnthropicFlatReconstructionError(
+                "Anthropic strict tool inputs could not be reconstructed.",
+                details={
+                    "stage": "B",
+                    "processingBoundary": "reconstruction",
+                    "section": "changeCandidates",
+                    "itemIndex": 2,
+                    "reconstructionComponent": "expectedMetricDirections",
+                    "reconstructionInvariant": "PARALLEL_LENGTH_MISMATCH",
+                    "leftCount": 3,
+                    "rightCount": 2,
+                    "safeRequestId": "msg_safe_test",
+                },
+            )
+
+    monkeypatch.setattr(cli, "AnthropicAnalysisProvider", FailedProvider)
+    code = cli.main([
+        "analysis-run",
+        "--source-brief", str(source),
+        "--provider", "anthropic",
+        "--output-root", str(tmp_path / "out"),
+    ])
+    assert code == 1
+    stderr = capsys.readouterr().err
+    assert marker not in stderr
+    payload = json.loads(stderr)
+    diagnostics = payload["providerDiagnostics"]
+    assert diagnostics["stage"] == "B"
+    assert diagnostics["section"] == "changeCandidates"
+    assert diagnostics["itemIndex"] == 2
+    assert diagnostics["reconstructionInvariant"] == "PARALLEL_LENGTH_MISMATCH"

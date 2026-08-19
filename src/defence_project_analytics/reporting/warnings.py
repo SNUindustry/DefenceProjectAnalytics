@@ -184,7 +184,6 @@ POST_RUN_WARNING_PRIORITY = (
     "MISSING_POST_RUN_PLAYER_IDENTITY",
     "RIGHT_CENSORED_POST_RUN_WINDOW",
     "BEST_EFFORT_ACTIVITY_ABSENCE",
-    "FEEDBACK_LINK_MISMATCH",
     "CROSS_CONTENT_POST_RUN_ACTION",
     "CROSS_RELEASE_POST_RUN_ACTION",
     "UNRECOGNIZED_POST_RUN_ACTION",
@@ -193,9 +192,8 @@ POST_RUN_WARNING_PRIORITY = (
     "COMMERCE_ATTEMPT_WITHOUT_SHOP_SELECTION",
     "TRANSACTION_ATTEMPT_WITHOUT_RESULT",
     "TRANSACTION_RESULT_WITHOUT_OBSERVED_ATTEMPT",
-    "FUN_FEEDBACK_REWARD_EXCLUDED_FROM_COMMERCE",
+    "NON_COMMERCE_SYSTEM_REWARD_EXCLUDED",
     "PROGRESSION_TRANSACTION_EXCLUDED_FROM_COMMERCE",
-    "LOW_FEEDBACK_SAMPLE",
     "LOW_COMMERCE_SAMPLE",
     "LOW_PROGRESSION_SAMPLE",
     "LOW_NEXT_RUN_SAMPLE",
@@ -287,7 +285,6 @@ class ProgressionThresholds:
 class PostRunThresholds:
     anchor_final_runs: int = 30
     mature_windows: int = 30
-    feedback_responses: int = 20
     shop_presented_windows: int = 20
     offer_selected_windows: int = 20
     observed_commerce_attempts: int = 20
@@ -302,7 +299,6 @@ class PostRunThresholds:
         counts = (
             self.anchor_final_runs,
             self.mature_windows,
-            self.feedback_responses,
             self.shop_presented_windows,
             self.offer_selected_windows,
             self.observed_commerce_attempts,

@@ -23,8 +23,8 @@ from defence_project_analytics.comparison import (
 from defence_project_analytics.config import AnalyticsConfig
 from defence_project_analytics.models import QueryParameterValue, QuerySpec
 from defence_project_analytics.metric_registry import (
-    COMPARISON_SUMMARY_SPECS,
-    COMPARISON_TABLE_SPECS,
+    comparison_summary_specs,
+    comparison_table_specs,
 )
 from defence_project_analytics.post_run_behavior import (
     PostRunBehaviorRequest,
@@ -84,7 +84,7 @@ from defence_project_analytics.weapon_performance import (
 )
 
 
-ANALYSIS_VERSION = "1.0.0"
+ANALYSIS_VERSION = "1.1.0"
 DEFAULT_MAXIMUM_TOTAL_BYTES = 1_000_000_000
 
 STAGE = "stageDifficulty"
@@ -93,6 +93,13 @@ UPGRADE = "upgradeChoice"
 PROGRESSION = "progressionNextRun"
 POST_RUN = "postRunBehavior"
 DOMAIN_ORDER = (STAGE, WEAPON, UPGRADE, PROGRESSION, POST_RUN)
+SOURCE_ANALYSIS_VERSIONS = {
+    STAGE: "1.0.0",
+    WEAPON: "1.0.0",
+    UPGRADE: "1.0.0",
+    PROGRESSION: "1.0.0",
+    POST_RUN: "1.1.0",
+}
 STAGE_DOMAINS = frozenset((STAGE, WEAPON, UPGRADE))
 DOMAIN_ALIASES = {
     "stage": STAGE,
@@ -571,8 +578,8 @@ def _domain_warning_codes(
     ):
         codes.append("INCOMPATIBLE_REPORT_CONTRACT")
     if (
-        baseline.manifest.analysis_version != ANALYSIS_VERSION
-        or candidate.manifest.analysis_version != ANALYSIS_VERSION
+        baseline.manifest.analysis_version != SOURCE_ANALYSIS_VERSIONS[domain]
+        or candidate.manifest.analysis_version != SOURCE_ANALYSIS_VERSIONS[domain]
         or baseline.manifest.analysis_version != candidate.manifest.analysis_version
     ):
         codes.append("INCOMPATIBLE_ANALYSIS_VERSION")
@@ -807,7 +814,7 @@ def _table_comparison_rows(
     thresholds: ComparisonThresholds,
 ) -> list[ComparisonRow]:
     rows: list[ComparisonRow] = []
-    for spec in COMPARISON_TABLE_SPECS.get(domain, ()):
+    for spec in comparison_table_specs(domain):
         left = _frame_rows(baseline.tables.get(spec.filename), spec.keys)
         right = _frame_rows(candidate.tables.get(spec.filename), spec.keys)
         for key in sorted(set(left).union(right)):
@@ -861,7 +868,7 @@ def _domain_comparison(
             _sample(baseline, domain), _sample(candidate, domain), (), (),
         )
     rows: list[ComparisonRow] = []
-    for family, metric, path, kind, unit in COMPARISON_SUMMARY_SPECS[domain]:
+    for family, metric, path, kind, unit in comparison_summary_specs(domain):
         left, right = _value(baseline.metrics, path), _value(candidate.metrics, path)
         if kind == "ratio":
             rows.append(ratio_comparison_row(

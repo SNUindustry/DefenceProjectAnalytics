@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from copy import deepcopy
+from dataclasses import dataclass, replace
 import json
 import math
 from pathlib import Path
@@ -26,6 +27,8 @@ from defence_project_analytics.llm_analysis.models import (
     MAX_RESPONSE_SECTION_ITEMS,
     MAX_ROLLBACK_INDICATORS,
     OBSERVABLE_DIRECTIONS,
+    OUTPUT_ID_DIGITS,
+    OUTPUT_ID_PREFIXES,
     RESPONSE_CONTRACT_VERSION,
     ROLLBACK_CONDITIONS,
     TARGET_TYPES,
@@ -46,6 +49,7 @@ from defence_project_analytics.llm_analysis.models import (
     ValidationPlan,
 )
 from defence_project_analytics.llm_analysis.policy import (
+    CausalMode,
     actionability,
     contains_numeric_claim,
     evidence_strength,
@@ -53,17 +57,20 @@ from defence_project_analytics.llm_analysis.policy import (
     overall_assessment,
     prohibited_language,
 )
-from defence_project_analytics.metric_registry import known_metric_keys
+from defence_project_analytics.llm_analysis.warning_authority import (
+    collect_allowed_warning_codes,
+)
+from defence_project_analytics.metric_registry import (
+    decision_metric_keys,
+    is_decision_evidence_item,
+    target_metric_keys,
+)
 from defence_project_analytics.reporting.renderers import to_external
 
 
 _ID_PATTERNS = {
-    "observation": re.compile(r"OBS-\d{3}$"),
-    "interpretation": re.compile(r"INT-\d{3}$"),
-    "hypothesis": re.compile(r"HYP-\d{3}$"),
-    "gap": re.compile(r"GAP-\d{3}$"),
-    "change": re.compile(r"CHG-\d{3}$"),
-    "validation": re.compile(r"VAL-\d{3}$"),
+    kind: re.compile(rf"{prefix}-\d{{{OUTPUT_ID_DIGITS}}}$")
+    for kind, prefix in OUTPUT_ID_PREFIXES.items()
 }
 _ACTIONABLE = frozenset({"Experiment", "BalanceChange", "UXChange", "TelemetryChange"})
 
@@ -74,18 +81,14 @@ class _Validator:
         self.issues: list[dict[str, str]] = []
         self.evidence = package.source.evidence_by_id
         self.brief_status = str(package.source.brief["overallStatus"])
-        self.warning_codes = {
-            str(item.get("code"))
-            for item in package.source.brief.get("criticalWarnings", [])
-            if isinstance(item, dict) and item.get("code")
+        self.warning_codes = set(collect_allowed_warning_codes(package))
+        self.metric_keys = set(decision_metric_keys())
+        self.target_metric_keys = set(target_metric_keys())
+        self.decision_evidence_ids = {
+            evidence_id
+            for evidence_id, item in self.evidence.items()
+            if is_decision_evidence_item(item)
         }
-        for item in self.evidence.values():
-            self.warning_codes.update(map(str, item.get("warningCodes", [])))
-        self.metric_keys = set(known_metric_keys())
-        self.metric_keys.update(
-            (str(item.get("domain")), str(item.get("metricFamily")), str(item.get("metric")))
-            for item in self.evidence.values()
-        )
 
     def issue(self, code: str, path: str, message: str) -> None:
         self.issues.append({"code": code, "path": path, "message": message})
@@ -118,6 +121,7 @@ class _Validator:
         nullable: bool = False,
         allow_numeric: bool = False,
         maximum: int = 2_000,
+        causal_mode: CausalMode = CausalMode.DEFAULT,
     ) -> str | None:
         if value is None and nullable:
             return None
@@ -129,7 +133,7 @@ class _Validator:
             self.issue("LIMIT_EXCEEDED", path, f"maximum length is {maximum}")
         if not allow_numeric and contains_numeric_claim(result):
             self.issue("FREEFORM_NUMERIC_CLAIM", path, "numeric facts must be rendered from evidence")
-        prohibited = prohibited_language(result)
+        prohibited = prohibited_language(result, causal_mode=causal_mode)
         if prohibited:
             self.issue("UNSUPPORTED_CAUSAL_LANGUAGE", path, f"prohibited wording: {prohibited}")
         private = forbidden_private_text(result)
@@ -137,11 +141,22 @@ class _Validator:
             self.issue("FORBIDDEN_PRIVATE_TEXT", path, f"forbidden text: {private}")
         return result
 
-    def string_list(self, value: Any, path: str, maximum: int = 10) -> tuple[str, ...]:
+    def string_list(
+        self,
+        value: Any,
+        path: str,
+        maximum: int = 10,
+        *,
+        causal_mode: CausalMode = CausalMode.DEFAULT,
+    ) -> tuple[str, ...]:
         items = self.array(value, path, maximum)
         result: list[str] = []
         for index, item in enumerate(items):
-            parsed = self.text(item, f"{path}[{index}]")
+            parsed = self.text(
+                item,
+                f"{path}[{index}]",
+                causal_mode=causal_mode,
+            )
             if parsed is not None:
                 result.append(parsed)
         if len(result) != len(set(result)):
@@ -178,6 +193,13 @@ class _Validator:
                 continue
             if item not in self.evidence:
                 self.issue("UNKNOWN_EVIDENCE_ID", f"{path}[{index}]", item)
+                continue
+            if item not in self.decision_evidence_ids:
+                self.issue(
+                    "HISTORICAL_ONLY_EVIDENCE",
+                    f"{path}[{index}]",
+                    "Evidence is readable but not eligible for a new decision",
+                )
                 continue
             result.append(item)
         if len(result) < minimum:
@@ -249,56 +271,63 @@ def _coverage(count: int, denominator: int) -> CitationCoverage:
     return CitationCoverage(count, denominator, None if denominator == 0 else count / denominator)
 
 
-def validate_response(
-    package: AnalysisPromptPackage,
-    response: Mapping[str, Any] | Path | str,
-) -> ValidatedAnalysis:
-    raw = _response_payload(response)
-    v = _Validator(package)
-    top = v.obj(raw, "$", {
-        "analysisVersion", "sourceBriefIdentity", "comparisonDirectionAcknowledgement",
-        "executiveSummary", "observations", "interpretations", "hypotheses",
-        "evidenceGaps", "changeCandidates", "validationPlans",
-    })
-    if top.get("analysisVersion") != ANALYSIS_VERSION:
-        v.issue("INCOMPATIBLE_ANALYSIS_VERSION", "$.analysisVersion", ANALYSIS_VERSION)
-    identity = v.obj(top.get("sourceBriefIdentity"), "$.sourceBriefIdentity", {
-        "semanticOutputDigest", "scopeHash", "mode",
-        "baselineContentVersion", "candidateContentVersion",
-    })
+@dataclass(frozen=True, slots=True)
+class ValidatedStageA:
+    canonical_sections: Mapping[str, Any]
+    observations: tuple[Observation, ...]
+    interpretations: tuple[Interpretation, ...]
+    evidence_gaps: tuple[EvidenceGap, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ValidatedStageB:
+    canonical_sections: Mapping[str, Any]
+    hypotheses: tuple[Hypothesis, ...]
+    change_candidates: tuple[ChangeCandidate, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ValidatedStageC:
+    canonical_sections: Mapping[str, Any]
+    validation_plans: tuple[ValidationPlan, ...]
+    executive_summary: ExecutiveSummary
+
+
+def _expected_identity(package: AnalysisPromptPackage) -> tuple[Mapping[str, Any], str]:
     expected = package.source.identity
-    identity_expected = {
+    return ({
         "semanticOutputDigest": expected.semantic_output_digest,
         "scopeHash": expected.scope_hash,
         "mode": expected.mode,
         "baselineContentVersion": expected.baseline_content_version,
         "candidateContentVersion": expected.candidate_content_version,
-    }
-    if identity != identity_expected:
-        v.issue("SOURCE_BRIEF_IDENTITY_MISMATCH", "$.sourceBriefIdentity", "must exactly match the analysis request")
-    expected_direction = "candidateMinusBaseline" if expected.mode == "contentVersionCompare" else "notApplicable"
-    if top.get("comparisonDirectionAcknowledgement") != expected_direction:
-        v.issue("COMPARISON_DIRECTION_MISMATCH", "$.comparisonDirectionAcknowledgement", expected_direction)
+    }, "candidateMinusBaseline" if expected.mode == "contentVersionCompare" else "notApplicable")
 
+
+def _validate_observations(v: _Validator, value: Any) -> list[Observation]:
     observations: list[Observation] = []
-    for index, raw_item in enumerate(v.array(top.get("observations"), "$.observations", MAX_OBSERVATIONS)):
+    for index, raw_item in enumerate(v.array(value, "$.observations", MAX_OBSERVATIONS)):
         path = f"$.observations[{index}]"
         item = v.obj(raw_item, path, {"id", "findingType", "qualitativeStatement", "evidenceIds", "importance"})
         ids = v.evidence_ids(item.get("evidenceIds"), f"{path}.evidenceIds", minimum=1)
         finding = v.enum(item.get("findingType"), f"{path}.findingType", FINDING_TYPES)
         for evidence_id in ids:
             evidence = v.evidence[evidence_id]
-            value = evidence.get("value", {})
+            evidence_value = evidence.get("value", {})
             if finding == "BaselineCandidateDifference" and not (
-                isinstance(value, dict) and "baselineValue" in value and "candidateValue" in value
+                isinstance(evidence_value, dict)
+                and "baselineValue" in evidence_value
+                and "candidateValue" in evidence_value
             ):
                 v.issue("FINDING_EVIDENCE_MISMATCH", f"{path}.findingType", evidence_id)
             if finding == "ObservedOnlyInBaseline" and not (
-                value.get("baselineObserved") is True and value.get("candidateObserved") is False
+                evidence_value.get("baselineObserved") is True
+                and evidence_value.get("candidateObserved") is False
             ):
                 v.issue("FINDING_EVIDENCE_MISMATCH", f"{path}.findingType", evidence_id)
             if finding == "ObservedOnlyInCandidate" and not (
-                value.get("candidateObserved") is True and value.get("baselineObserved") is False
+                evidence_value.get("candidateObserved") is True
+                and evidence_value.get("baselineObserved") is False
             ):
                 v.issue("FINDING_EVIDENCE_MISMATCH", f"{path}.findingType", evidence_id)
             if finding == "LimitedOrUnavailable" and evidence.get("status") not in {"Limited", "Unavailable"}:
@@ -310,9 +339,12 @@ def validate_response(
             evidence_ids=ids,
             importance=v.enum(item.get("importance"), f"{path}.importance", IMPORTANCE_VALUES),
         ))
+    return observations
 
+
+def _validate_interpretations(v: _Validator, value: Any) -> list[Interpretation]:
     interpretations: list[Interpretation] = []
-    for index, raw_item in enumerate(v.array(top.get("interpretations"), "$.interpretations", MAX_RESPONSE_SECTION_ITEMS)):
+    for index, raw_item in enumerate(v.array(value, "$.interpretations", MAX_RESPONSE_SECTION_ITEMS)):
         path = f"$.interpretations[{index}]"
         item = v.obj(raw_item, path, {"id", "statement", "evidenceIds", "limitationEvidenceIds", "limitationWarningCodes"})
         ids = v.evidence_ids(item.get("evidenceIds"), f"{path}.evidenceIds", minimum=1)
@@ -325,9 +357,12 @@ def validate_response(
             limitation_warning_codes=v.warning_list(item.get("limitationWarningCodes"), f"{path}.limitationWarningCodes"),
             evidence_strength=evidence_strength(v.brief_status, (v.evidence[x] for x in ids)),
         ))
+    return interpretations
 
+
+def _validate_evidence_gaps(v: _Validator, value: Any) -> list[EvidenceGap]:
     gaps: list[EvidenceGap] = []
-    for index, raw_item in enumerate(v.array(top.get("evidenceGaps"), "$.evidenceGaps", MAX_RESPONSE_SECTION_ITEMS)):
+    for index, raw_item in enumerate(v.array(value, "$.evidenceGaps", MAX_RESPONSE_SECTION_ITEMS)):
         path = f"$.evidenceGaps[{index}]"
         item = v.obj(raw_item, path, {"id", "question", "whyItMatters", "relatedEvidenceIds", "suggestedAnalysis", "requiresNewTelemetry"})
         suggested = item.get("suggestedAnalysis")
@@ -335,16 +370,31 @@ def validate_response(
             suggested = v.enum(suggested, f"{path}.suggestedAnalysis", KNOWN_ANALYSES)
         gaps.append(EvidenceGap(
             id=v.id(item.get("id"), f"{path}.id", "gap"),
-            question=v.text(item.get("question"), f"{path}.question") or "",
-            why_it_matters=v.text(item.get("whyItMatters"), f"{path}.whyItMatters") or "",
+            question=v.text(
+                item.get("question"),
+                f"{path}.question",
+                causal_mode=CausalMode.INVESTIGATION_GAP,
+            ) or "",
+            why_it_matters=v.text(
+                item.get("whyItMatters"),
+                f"{path}.whyItMatters",
+                causal_mode=CausalMode.INVESTIGATION_GAP,
+            ) or "",
             related_evidence_ids=v.evidence_ids(item.get("relatedEvidenceIds"), f"{path}.relatedEvidenceIds"),
             suggested_analysis=suggested,
             requires_new_telemetry=v.bool(item.get("requiresNewTelemetry"), f"{path}.requiresNewTelemetry"),
         ))
-    gap_ids = {item.id for item in gaps if item.id}
+    return gaps
 
+
+def _validate_hypotheses(
+    v: _Validator,
+    value: Any,
+    *,
+    gap_ids: set[str],
+) -> list[Hypothesis]:
     hypotheses: list[Hypothesis] = []
-    for index, raw_item in enumerate(v.array(top.get("hypotheses"), "$.hypotheses", MAX_RESPONSE_SECTION_ITEMS)):
+    for index, raw_item in enumerate(v.array(value, "$.hypotheses", MAX_RESPONSE_SECTION_ITEMS)):
         path = f"$.hypotheses[{index}]"
         item = v.obj(raw_item, path, {
             "id", "statement", "supportingEvidenceIds", "counterEvidenceIds",
@@ -358,9 +408,7 @@ def validate_response(
             v.issue("COUNTER_EVIDENCE_INVARIANT", f"{path}.counterEvidenceIds", "FoundInSuppliedBrief requires counter evidence")
         if search == "NotIdentifiedInSuppliedBrief" and counter:
             v.issue("COUNTER_EVIDENCE_INVARIANT", f"{path}.counterEvidenceIds", "NotIdentifiedInSuppliedBrief requires an empty list")
-        referenced_gaps = v.output_ids(
-            item.get("evidenceGapIds"), f"{path}.evidenceGapIds", kind="gap"
-        )
+        referenced_gaps = v.output_ids(item.get("evidenceGapIds"), f"{path}.evidenceGapIds", kind="gap")
         for gap_id in referenced_gaps:
             if gap_id not in gap_ids:
                 v.issue("UNKNOWN_OUTPUT_REFERENCE", f"{path}.evidenceGapIds", gap_id)
@@ -381,9 +429,16 @@ def validate_response(
                 (v.evidence[x] for x in counter),
             ),
         ))
+    return hypotheses
 
+
+def _validate_change_candidates(
+    v: _Validator,
+    value: Any,
+) -> list[ChangeCandidate]:
     changes: list[ChangeCandidate] = []
-    for index, raw_item in enumerate(v.array(top.get("changeCandidates"), "$.changeCandidates", MAX_RESPONSE_SECTION_ITEMS)):
+    expected = v.package.source.identity
+    for index, raw_item in enumerate(v.array(value, "$.changeCandidates", MAX_RESPONSE_SECTION_ITEMS)):
         path = f"$.changeCandidates[{index}]"
         item = v.obj(raw_item, path, {
             "id", "domain", "target", "actionType", "proposedChange", "rationale",
@@ -404,13 +459,15 @@ def validate_response(
         description = v.text(target_raw.get("description"), f"{path}.target.description", nullable=True)
         requires_context = v.bool(target_raw.get("requiresGameDesignContext"), f"{path}.target.requiresGameDesignContext")
         if target_type == "EvidenceEntity" and not any(
+            evidence_id in v.decision_evidence_ids
+            and
             evidence.get("domain") == target_domain
             and evidence.get("entityType") == entity_type
             and evidence.get("entityKey") == entity_key
-            for evidence in v.evidence.values()
+            for evidence_id, evidence in v.evidence.items()
         ):
             v.issue("UNKNOWN_EVIDENCE_ENTITY", f"{path}.target", "entity is not present in selected evidence")
-        if target_type == "EvidenceMetric" and (target_domain, metric_family, metric) not in v.metric_keys:
+        if target_type == "EvidenceMetric" and (target_domain, metric_family, metric) not in v.target_metric_keys:
             v.issue("UNKNOWN_METRIC", f"{path}.target", "metric is not in the shared registry")
         if target_type == "Conceptual" and not requires_context:
             v.issue("CONCEPTUAL_TARGET_REQUIRES_CONTEXT", f"{path}.target.requiresGameDesignContext", "must be true")
@@ -419,7 +476,10 @@ def validate_response(
         })
         amount = proposed_raw.get("amountPercent")
         if amount is not None and (
-            isinstance(amount, bool) or not isinstance(amount, (int, float)) or not math.isfinite(float(amount)) or float(amount) <= 0
+            isinstance(amount, bool)
+            or not isinstance(amount, (int, float))
+            or not math.isfinite(float(amount))
+            or float(amount) <= 0
         ):
             v.issue("INVALID_NUMERIC_TUNING", f"{path}.proposedChange.amountPercent", "must be a finite positive number or null")
             amount = None
@@ -428,7 +488,8 @@ def validate_response(
         direction = v.enum(proposed_raw.get("direction"), f"{path}.proposedChange.direction", DIRECTIONS)
         magnitude_basis = v.text(proposed_raw.get("magnitudeBasis"), f"{path}.proposedChange.magnitudeBasis", nullable=True)
         if amount is not None and (
-            not heuristic or magnitude_basis != "HeuristicExperimentCandidate"
+            not heuristic
+            or magnitude_basis != "HeuristicExperimentCandidate"
             or action_type not in {"Experiment", "BalanceChange", "UXChange"}
             or direction not in {"Increase", "Decrease"}
         ):
@@ -445,7 +506,7 @@ def validate_response(
         )
         if v.brief_status == "Insufficient" and action_type in _ACTIONABLE:
             v.issue("INSUFFICIENT_ACTION_BLOCKED", f"{path}.actionType", action_type)
-        if expected.mode == "singleVersion" and not package.request.analysis_objective and action_type in {"BalanceChange", "UXChange"}:
+        if expected.mode == "singleVersion" and not v.package.request.analysis_objective and action_type in {"BalanceChange", "UXChange"}:
             v.issue("DESIGN_OBJECTIVE_REQUIRED", f"{path}.actionType", "single-version balance/UX change requires design context")
         expected_directions: list[ExpectedObservableDirection] = []
         for dindex, raw_direction in enumerate(v.array(item.get("expectedObservableDirections"), f"{path}.expectedObservableDirections", 10)):
@@ -485,7 +546,11 @@ def validate_response(
             counter_evidence_ids=counter,
             counter_evidence_search_status=search,
             limitation_warning_codes=v.warning_list(item.get("limitationWarningCodes"), f"{path}.limitationWarningCodes"),
-            risks=v.string_list(item.get("risks"), f"{path}.risks"),
+            risks=v.string_list(
+                item.get("risks"),
+                f"{path}.risks",
+                causal_mode=CausalMode.PROSPECTIVE_RISK,
+            ),
             expected_observable_directions=tuple(expected_directions),
             validation_plan_id=validation_plan_id,
             evidence_strength=strength,
@@ -493,29 +558,43 @@ def validate_response(
                 action_type=action_type,
                 strength=strength,
                 brief_status=v.brief_status,
-                has_design_objective=bool(package.request.analysis_objective),
+                has_design_objective=bool(v.package.request.analysis_objective),
                 conceptual_target=target_type == "Conceptual",
                 heuristic_numeric=amount is not None,
             ),
         ))
+    return changes
 
+
+def _metric_refs(
+    v: _Validator,
+    value: Any,
+    path: str,
+    maximum: int = 10,
+) -> tuple[MetricReference, ...]:
+    refs: list[MetricReference] = []
+    for index, raw_metric in enumerate(v.array(value, path, maximum)):
+        item_path = f"{path}[{index}]"
+        metric_item = v.obj(raw_metric, item_path, {"domain", "metricFamily", "metric"})
+        key = (
+            str(metric_item.get("domain")),
+            str(metric_item.get("metricFamily")),
+            str(metric_item.get("metric")),
+        )
+        if key not in v.metric_keys:
+            v.issue("UNKNOWN_METRIC", item_path, ".".join(key))
+        refs.append(MetricReference(*key))
+    return tuple(refs)
+
+
+def _validate_validation_plans(v: _Validator, value: Any) -> list[ValidationPlan]:
     validations: list[ValidationPlan] = []
-    for index, raw_item in enumerate(v.array(top.get("validationPlans"), "$.validationPlans", MAX_RESPONSE_SECTION_ITEMS)):
+    for index, raw_item in enumerate(v.array(value, "$.validationPlans", MAX_RESPONSE_SECTION_ITEMS)):
         path = f"$.validationPlans[{index}]"
         item = v.obj(raw_item, path, {
             "id", "changeCandidateId", "analysesToRerun", "metricsToWatch",
             "guardrailMetrics", "minimumEvidenceRequirements", "comparisonPlan", "rollbackIndicators",
         })
-        def metric_refs(value: Any, mpath: str, maximum: int = 10) -> tuple[MetricReference, ...]:
-            refs: list[MetricReference] = []
-            for mindex, raw_metric in enumerate(v.array(value, mpath, maximum)):
-                ipath = f"{mpath}[{mindex}]"
-                metric_item = v.obj(raw_metric, ipath, {"domain", "metricFamily", "metric"})
-                key = (str(metric_item.get("domain")), str(metric_item.get("metricFamily")), str(metric_item.get("metric")))
-                if key not in v.metric_keys:
-                    v.issue("UNKNOWN_METRIC", ipath, ".".join(key))
-                refs.append(MetricReference(*key))
-            return tuple(refs)
         analyses = v.string_list(item.get("analysesToRerun"), f"{path}.analysesToRerun")
         for analysis in analyses:
             if analysis not in KNOWN_ANALYSES:
@@ -528,7 +607,7 @@ def validate_response(
         for rindex, raw_rollback in enumerate(v.array(item.get("rollbackIndicators"), f"{path}.rollbackIndicators", MAX_ROLLBACK_INDICATORS)):
             rpath = f"{path}.rollbackIndicators[{rindex}]"
             rollback_item = v.obj(raw_rollback, rpath, {"metric", "condition"})
-            refs = metric_refs([rollback_item.get("metric")], f"{rpath}.metric", 1)
+            refs = _metric_refs(v, [rollback_item.get("metric")], f"{rpath}.metric", 1)
             if refs:
                 rollback.append(RollbackIndicator(
                     refs[0], v.enum(rollback_item.get("condition"), f"{rpath}.condition", ROLLBACK_CONDITIONS)
@@ -537,52 +616,218 @@ def validate_response(
             id=v.id(item.get("id"), f"{path}.id", "validation"),
             change_candidate_id=v.id(item.get("changeCandidateId"), f"{path}.changeCandidateId", "change"),
             analyses_to_rerun=analyses,
-            metrics_to_watch=metric_refs(item.get("metricsToWatch"), f"{path}.metricsToWatch"),
-            guardrail_metrics=metric_refs(item.get("guardrailMetrics"), f"{path}.guardrailMetrics"),
+            metrics_to_watch=_metric_refs(v, item.get("metricsToWatch"), f"{path}.metricsToWatch"),
+            guardrail_metrics=_metric_refs(v, item.get("guardrailMetrics"), f"{path}.guardrailMetrics"),
             minimum_evidence_requirements=requirements,
             comparison_plan=v.enum(item.get("comparisonPlan"), f"{path}.comparisonPlan", COMPARISON_PLANS),
             rollback_indicators=tuple(rollback),
         ))
+    return validations
 
-    change_ids = {item.id for item in changes if item.id}
-    validation_by_id = {item.id: item for item in validations if item.id}
-    for item in validations:
+
+def _validate_plan_links(
+    v: _Validator,
+    changes: Iterable[ChangeCandidate],
+    validations: Iterable[ValidationPlan],
+) -> Mapping[str, ValidationPlan]:
+    changes_tuple = tuple(changes)
+    validations_tuple = tuple(validations)
+    change_ids = {item.id for item in changes_tuple if item.id}
+    validation_by_id = {item.id: item for item in validations_tuple if item.id}
+    for item in validations_tuple:
         if item.change_candidate_id not in change_ids:
             v.issue("UNKNOWN_OUTPUT_REFERENCE", "$.validationPlans", item.change_candidate_id)
-    for item in changes:
+    for item in changes_tuple:
         if item.validation_plan_id:
             plan = validation_by_id.get(item.validation_plan_id)
             if plan is None or plan.change_candidate_id != item.id:
                 v.issue("VALIDATION_LINK_MISMATCH", "$.changeCandidates", item.id)
             elif not plan.analyses_to_rerun or not plan.metrics_to_watch:
                 v.issue("INCOMPLETE_VALIDATION_PLAN", "$.validationPlans", plan.id)
+    return validation_by_id
 
-    executive_raw = v.obj(top.get("executiveSummary"), "$.executiveSummary", {
-        "qualitativeOverview", "observationIds", "hypothesisIds", "evidenceGapIds", "changeCandidateIds"
+
+def _validate_executive_summary(
+    v: _Validator,
+    value: Any,
+    *,
+    observations: Iterable[Observation],
+    hypotheses: Iterable[Hypothesis],
+    gaps: Iterable[EvidenceGap],
+    changes: Iterable[ChangeCandidate],
+) -> ExecutiveSummary:
+    raw = v.obj(value, "$.executiveSummary", {
+        "qualitativeOverview", "observationIds", "hypothesisIds", "evidenceGapIds", "changeCandidateIds",
     })
-    def output_refs(
-        value: Any, path: str, allowed: set[str], kind: str
-    ) -> tuple[str, ...]:
+
+    def output_refs(value: Any, path: str, allowed: set[str], kind: str) -> tuple[str, ...]:
         refs = v.output_ids(value, path, kind=kind, maximum=MAX_EXECUTIVE_SUMMARY_IDS)
         for ref in refs:
             if ref not in allowed:
                 v.issue("UNKNOWN_OUTPUT_REFERENCE", path, ref)
         return refs
-    executive = ExecutiveSummary(
-        qualitative_overview=v.text(executive_raw.get("qualitativeOverview"), "$.executiveSummary.qualitativeOverview") or "",
-        observation_ids=output_refs(executive_raw.get("observationIds"), "$.executiveSummary.observationIds", {x.id for x in observations}, "observation"),
-        hypothesis_ids=output_refs(executive_raw.get("hypothesisIds"), "$.executiveSummary.hypothesisIds", {x.id for x in hypotheses}, "hypothesis"),
-        evidence_gap_ids=output_refs(executive_raw.get("evidenceGapIds"), "$.executiveSummary.evidenceGapIds", gap_ids, "gap"),
-        change_candidate_ids=output_refs(executive_raw.get("changeCandidateIds"), "$.executiveSummary.changeCandidateIds", change_ids, "change"),
+
+    observation_ids = {item.id for item in observations}
+    hypothesis_ids = {item.id for item in hypotheses}
+    gap_ids = {item.id for item in gaps}
+    change_ids = {item.id for item in changes}
+    return ExecutiveSummary(
+        qualitative_overview=v.text(raw.get("qualitativeOverview"), "$.executiveSummary.qualitativeOverview") or "",
+        observation_ids=output_refs(raw.get("observationIds"), "$.executiveSummary.observationIds", observation_ids, "observation"),
+        hypothesis_ids=output_refs(raw.get("hypothesisIds"), "$.executiveSummary.hypothesisIds", hypothesis_ids, "hypothesis"),
+        evidence_gap_ids=output_refs(raw.get("evidenceGapIds"), "$.executiveSummary.evidenceGapIds", gap_ids, "gap"),
+        change_candidate_ids=output_refs(raw.get("changeCandidateIds"), "$.executiveSummary.changeCandidateIds", change_ids, "change"),
     )
 
-    v.check_unique_ids((
-        ("observations", observations), ("interpretations", interpretations),
-        ("hypotheses", hypotheses), ("evidenceGaps", gaps),
-        ("changeCandidates", changes), ("validationPlans", validations),
-    ))
+
+def _raise_if_issues(v: _Validator) -> None:
     if v.issues:
         raise AnalysisResponseValidationError(tuple(v.issues))
+
+
+def validate_stage_a(
+    package: AnalysisPromptPackage,
+    sections: Mapping[str, Any] | Path | str,
+) -> ValidatedStageA:
+    raw = _response_payload(sections)
+    v = _Validator(package)
+    top = v.obj(raw, "$", {"observations", "interpretations", "evidenceGaps"})
+    observations = _validate_observations(v, top.get("observations"))
+    interpretations = _validate_interpretations(v, top.get("interpretations"))
+    gaps = _validate_evidence_gaps(v, top.get("evidenceGaps"))
+    v.check_unique_ids((("observations", observations), ("interpretations", interpretations), ("evidenceGaps", gaps)))
+    _raise_if_issues(v)
+    return ValidatedStageA(
+        canonical_sections=deepcopy(dict(top)),
+        observations=tuple(observations),
+        interpretations=tuple(interpretations),
+        evidence_gaps=tuple(gaps),
+    )
+
+
+def validate_stage_b(
+    package: AnalysisPromptPackage,
+    sections: Mapping[str, Any] | Path | str,
+    stage_a: ValidatedStageA,
+) -> ValidatedStageB:
+    raw = _response_payload(sections)
+    v = _Validator(package)
+    top = v.obj(raw, "$", {"hypotheses", "changeCandidates"})
+    hypotheses = _validate_hypotheses(
+        v,
+        top.get("hypotheses"),
+        gap_ids={item.id for item in stage_a.evidence_gaps if item.id},
+    )
+    changes = _validate_change_candidates(v, top.get("changeCandidates"))
+    v.check_unique_ids((
+        ("observations", stage_a.observations),
+        ("interpretations", stage_a.interpretations),
+        ("evidenceGaps", stage_a.evidence_gaps),
+        ("hypotheses", hypotheses),
+        ("changeCandidates", changes),
+    ))
+    _raise_if_issues(v)
+    return ValidatedStageB(
+        canonical_sections=deepcopy(dict(top)),
+        hypotheses=tuple(hypotheses),
+        change_candidates=tuple(changes),
+    )
+
+
+def validate_stage_c(
+    package: AnalysisPromptPackage,
+    sections: Mapping[str, Any] | Path | str,
+    stage_a: ValidatedStageA,
+    stage_b: ValidatedStageB,
+) -> ValidatedStageC:
+    raw = _response_payload(sections)
+    v = _Validator(package)
+    top = v.obj(raw, "$", {"validationPlans", "executiveSummary"})
+    validations = _validate_validation_plans(v, top.get("validationPlans"))
+    _validate_plan_links(v, stage_b.change_candidates, validations)
+    executive = _validate_executive_summary(
+        v,
+        top.get("executiveSummary"),
+        observations=stage_a.observations,
+        hypotheses=stage_b.hypotheses,
+        gaps=stage_a.evidence_gaps,
+        changes=stage_b.change_candidates,
+    )
+    v.check_unique_ids((
+        ("observations", stage_a.observations),
+        ("interpretations", stage_a.interpretations),
+        ("evidenceGaps", stage_a.evidence_gaps),
+        ("hypotheses", stage_b.hypotheses),
+        ("changeCandidates", stage_b.change_candidates),
+        ("validationPlans", validations),
+    ))
+    _raise_if_issues(v)
+    return ValidatedStageC(
+        canonical_sections=deepcopy(dict(top)),
+        validation_plans=tuple(validations),
+        executive_summary=executive,
+    )
+
+
+def validate_response(
+    package: AnalysisPromptPackage,
+    response: Mapping[str, Any] | Path | str,
+) -> ValidatedAnalysis:
+    raw = _response_payload(response)
+    v = _Validator(package)
+    top = v.obj(raw, "$", {
+        "analysisVersion", "sourceBriefIdentity", "comparisonDirectionAcknowledgement",
+        "executiveSummary", "observations", "interpretations", "hypotheses",
+        "evidenceGaps", "changeCandidates", "validationPlans",
+    })
+    identity_expected, expected_direction = _expected_identity(package)
+    if top.get("analysisVersion") != ANALYSIS_VERSION:
+        v.issue("INCOMPATIBLE_ANALYSIS_VERSION", "$.analysisVersion", ANALYSIS_VERSION)
+    identity = v.obj(top.get("sourceBriefIdentity"), "$.sourceBriefIdentity", {
+        "semanticOutputDigest", "scopeHash", "mode",
+        "baselineContentVersion", "candidateContentVersion",
+    })
+    if identity != identity_expected:
+        v.issue(
+            "SOURCE_BRIEF_IDENTITY_MISMATCH",
+            "$.sourceBriefIdentity",
+            "must exactly match the analysis request",
+        )
+    if top.get("comparisonDirectionAcknowledgement") != expected_direction:
+        v.issue(
+            "COMPARISON_DIRECTION_MISMATCH",
+            "$.comparisonDirectionAcknowledgement",
+            expected_direction,
+        )
+
+    observations = _validate_observations(v, top.get("observations"))
+    interpretations = _validate_interpretations(v, top.get("interpretations"))
+    gaps = _validate_evidence_gaps(v, top.get("evidenceGaps"))
+    hypotheses = _validate_hypotheses(
+        v,
+        top.get("hypotheses"),
+        gap_ids={item.id for item in gaps if item.id},
+    )
+    changes = _validate_change_candidates(v, top.get("changeCandidates"))
+    validations = _validate_validation_plans(v, top.get("validationPlans"))
+    validation_by_id = _validate_plan_links(v, changes, validations)
+    executive = _validate_executive_summary(
+        v,
+        top.get("executiveSummary"),
+        observations=observations,
+        hypotheses=hypotheses,
+        gaps=gaps,
+        changes=changes,
+    )
+    v.check_unique_ids((
+        ("observations", observations),
+        ("interpretations", interpretations),
+        ("hypotheses", hypotheses),
+        ("evidenceGaps", gaps),
+        ("changeCandidates", changes),
+        ("validationPlans", validations),
+    ))
+    _raise_if_issues(v)
 
     observations.sort(key=lambda item: item.id)
     interpretations.sort(key=lambda item: item.id)
@@ -591,7 +836,9 @@ def validate_response(
     changes.sort(key=lambda item: item.id)
     validations.sort(key=lambda item: item.id)
     actionable = [item for item in changes if item.action_type in _ACTIONABLE]
-    valid_actionable = [item for item in actionable if item.validation_plan_id in validation_by_id]
+    valid_actionable = [
+        item for item in actionable if item.validation_plan_id in validation_by_id
+    ]
     analysis = ValidatedAnalysis(
         analysis_version=ANALYSIS_VERSION,
         source_brief_identity=package.source.identity,
@@ -608,16 +855,38 @@ def validate_response(
             (item.action_type for item in changes),
             (item.actionability for item in changes),
         ),
-        observation_citation_coverage=_coverage(sum(bool(x.evidence_ids) for x in observations), len(observations)),
-        hypothesis_support_coverage=_coverage(sum(bool(x.supporting_evidence_ids) for x in hypotheses), len(hypotheses)),
-        change_candidate_evidence_coverage=_coverage(sum(bool(x.supporting_evidence_ids) for x in changes), len(changes)),
-        actionable_candidate_validation_coverage=_coverage(len(valid_actionable), len(actionable)),
+        observation_citation_coverage=_coverage(
+            sum(bool(item.evidence_ids) for item in observations),
+            len(observations),
+        ),
+        hypothesis_support_coverage=_coverage(
+            sum(bool(item.supporting_evidence_ids) for item in hypotheses),
+            len(hypotheses),
+        ),
+        change_candidate_evidence_coverage=_coverage(
+            sum(bool(item.supporting_evidence_ids) for item in changes),
+            len(changes),
+        ),
+        actionable_candidate_validation_coverage=_coverage(
+            len(valid_actionable),
+            len(actionable),
+        ),
         invalid_evidence_reference_count=0,
         normalized_analysis_digest="",
     )
     digest_payload = to_external(analysis)
     digest_payload.pop("normalizedAnalysisDigest", None)
-    return replace(analysis, normalized_analysis_digest=canonical_digest(digest_payload))
-
-
-__all__ = ["validate_response", "RESPONSE_CONTRACT_VERSION"]
+    return replace(
+        analysis,
+        normalized_analysis_digest=canonical_digest(digest_payload),
+    )
+__all__ = [
+    "RESPONSE_CONTRACT_VERSION",
+    "ValidatedStageA",
+    "ValidatedStageB",
+    "ValidatedStageC",
+    "validate_response",
+    "validate_stage_a",
+    "validate_stage_b",
+    "validate_stage_c",
+]
