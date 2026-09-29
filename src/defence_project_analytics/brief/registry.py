@@ -11,6 +11,7 @@ from typing import Mapping
 
 from defence_project_analytics.metric_registry import (
     COMPARISON_TABLE_SPECS,
+    RETENTION_EVIDENCE_METRIC_SPECS,
     evidence_metric_keys,
 )
 
@@ -21,6 +22,11 @@ ANALYSIS_TO_DOMAIN = {
     "upgradeChoice": "upgradeChoice",
     "progressionNextRun": "progressionNextRun",
     "postRunBehavior": "postRunBehavior",
+    "runRetention": "runRetention",
+    "observedAppReturn": "observedAppReturn",
+    "gaIdentityBridge": "gaIdentityBridge",
+    "observedUninstall": "observedUninstall",
+    "retentionEvidence": "retentionEvidence",
     "contentVersionCompare": "contentVersionCompare",
 }
 SINGLE_ANALYSIS_TYPES = frozenset(ANALYSIS_TO_DOMAIN) - {"contentVersionCompare"}
@@ -129,6 +135,73 @@ SUMMARY_METRICS: Mapping[str, tuple[SummaryMetricSpec, ...]] = {
         SummaryMetricSpec("nextRun", "nextRunWithinWindow", "nextRun.nextRunWithinWindow", "ratio", "ratio", "matureWindows", True),
         SummaryMetricSpec("nextRun", "sameStageRetry", "nextRun.sameStageRetry", "ratio", "ratio", "linkedWindows"),
     ),
+    "runRetention": (
+        SummaryMetricSpec("sample", "anchorFinalAttempts", "sample.anchorFinalAttempts", "scalar", "attempts", "canonicalFinalAttempts", True),
+        SummaryMetricSpec("sample", "eligibleAnchors", "sample.eligibleAnchors", "scalar", "attempts", "linkageEligibleCanonicalFinalAttempts", True),
+        SummaryMetricSpec("nextRun", "nextRunObservedRate", "nextRun.nextRunObserved", "ratio", "ratio", "eligibleAnchors", True),
+        SummaryMetricSpec("observation", "latencyRightCensoredRate", "observation.latencyRightCensored", "ratio", "ratio", "eligibleAnchors", True),
+        SummaryMetricSpec("latency", "nextRunDelayP50", "latency.observedDelaySeconds.p50", "scalar", "seconds", "anchorsWithObservedNextNewAttempt", True),
+        SummaryMetricSpec("latency", "nextRunDelayP75", "latency.observedDelaySeconds.p75", "scalar", "seconds", "anchorsWithObservedNextNewAttempt"),
+        SummaryMetricSpec("threshold", "thresholdExceededCount", "thresholdClassification.thresholdExceededCount", "scalar", "anchors", "thresholdResolvedAnchors"),
+        SummaryMetricSpec("threshold", "noNextRunBeyondThresholdCount", "thresholdClassification.noNextRunBeyondThresholdCount", "scalar", "anchors", "thresholdResolvedAnchors"),
+    ),
+    "observedAppReturn": (
+        SummaryMetricSpec("sample", "anchorFinalAttempts", "sample.anchorFinalAttempts", "scalar", "attempts", "canonicalFinalAttempts", True),
+        SummaryMetricSpec("sample", "eligibleAnchors", "sample.eligibleAnchors", "scalar", "attempts", "lifecycleBaselineEligibleAnchors", True),
+        SummaryMetricSpec("return", "observedReturnCount", "return.observedReturnCount", "scalar", "attempts", "eligibleAnchors", True),
+        SummaryMetricSpec("return", "observedReturnRate", "return.observedReturnRate", "ratio", "ratio", "eligibleAnchors", True),
+        SummaryMetricSpec("return", "coldStartReturnCount", "return.coldStartReturnCount", "scalar", "attempts", "observedReturns"),
+        SummaryMetricSpec("return", "foregroundResumeReturnCount", "return.foregroundResumeReturnCount", "scalar", "attempts", "observedReturns"),
+        SummaryMetricSpec("observation", "rightCensoredCount", "observation.rightCensoredCount", "scalar", "attempts", "eligibleAnchors", True),
+        SummaryMetricSpec("observation", "rightCensoredRate", "observation.rightCensoredRate", "ratio", "ratio", "eligibleAnchors"),
+        SummaryMetricSpec("latency", "timeToObservedAppReturnP50", "latency.timeToObservedAppReturnP50", "scalar", "seconds", "observedReturns"),
+        SummaryMetricSpec("latency", "timeToObservedAppReturnP75", "latency.timeToObservedAppReturnP75", "scalar", "seconds", "observedReturns"),
+        SummaryMetricSpec("latency", "timeToObservedAppReturnP90", "latency.timeToObservedAppReturnP90", "scalar", "seconds", "observedReturns"),
+        SummaryMetricSpec("threshold", "returnedWithinThresholdCount", "threshold.returnedWithinThresholdCount", "scalar", "attempts", "thresholdClassifiedAnchors"),
+        SummaryMetricSpec("threshold", "returnedAfterThresholdCount", "threshold.returnedAfterThresholdCount", "scalar", "attempts", "thresholdClassifiedAnchors"),
+        SummaryMetricSpec("threshold", "noObservedReturnBeyondThresholdCount", "threshold.noObservedReturnBeyondThresholdCount", "scalar", "attempts", "thresholdClassifiedAnchors"),
+    ),
+    "gaIdentityBridge": (
+        SummaryMetricSpec("source", "gaForegroundEvents", "source.gaForegroundEvents", "scalar", "events", "gaForegroundObservations", True),
+        SummaryMetricSpec("mapping", "mappedCount", "mapping.mappedCount", "scalar", "observations", "gaForegroundObservations", True),
+        SummaryMetricSpec("mapping", "mappedRate", "mapping.mappedRate", "ratio", "ratio", "gaForegroundObservations", True),
+        SummaryMetricSpec("mapping", "unmappedCount", "mapping.unmappedCount", "scalar", "observations", "gaForegroundObservations"),
+        SummaryMetricSpec("mapping", "temporalConflictCount", "mapping.temporalConflictCount", "scalar", "observations", "gaForegroundObservations", True),
+        SummaryMetricSpec("mapping", "multiProfilePseudoCount", "mapping.multiProfilePseudoCount", "scalar", "appInstances", "mappedAppInstances"),
+        SummaryMetricSpec("mapping", "profileSwitchObservationCount", "mapping.profileSwitchObservationCount", "scalar", "transitions", "mappedTimelineTransitions"),
+    ),
+    "observedUninstall": (
+        SummaryMetricSpec("source", "appRemoveEvents", "source.appRemoveEvents", "scalar", "events", "observedAppRemoveEvents", True),
+        SummaryMetricSpec("uninstall", "observedCount", "uninstall.observedCount", "scalar", "events", "observedAppRemoveEvents", True),
+        SummaryMetricSpec("attribution", "mappedCount", "attribution.mappedCount", "scalar", "events", "observedAppRemoveEvents", True),
+        SummaryMetricSpec("attribution", "mappedRate", "attribution.mappedRate", "ratio", "ratio", "observedAppRemoveEvents", True),
+        SummaryMetricSpec("attribution", "unmappedCount", "attribution.unmappedCount", "scalar", "events", "observedAppRemoveEvents", True),
+        SummaryMetricSpec("attribution", "ambiguousCount", "attribution.ambiguousCount", "scalar", "events", "observedAppRemoveEvents", True),
+        SummaryMetricSpec("attribution", "missingPseudoCount", "attribution.missingPseudoCount", "scalar", "events", "observedAppRemoveEvents"),
+        SummaryMetricSpec("attribution", "noPriorMappingCount", "attribution.noPriorMappingCount", "scalar", "events", "observedAppRemoveEvents"),
+        SummaryMetricSpec("attribution", "temporalConflictCount", "attribution.temporalConflictCount", "scalar", "events", "observedAppRemoveEvents"),
+        SummaryMetricSpec("mappingAge", "p50Seconds", "mappingAge.p50Seconds", "scalar", "seconds", "mappedObservedAppRemoveEvents"),
+        SummaryMetricSpec("mappingAge", "p95Seconds", "mappingAge.p95Seconds", "scalar", "seconds", "mappedObservedAppRemoveEvents"),
+    ),
+    "retentionEvidence": tuple(
+        SummaryMetricSpec(
+            family,
+            metric,
+            path,
+            value_type,
+            unit,
+            (
+                "matureAnchors"
+                if family in {"gameplayReturn", "appReturn"}
+                else "retentionEpisodes"
+                if family == "retentionEvidence"
+                else "observedAppRemoveEvents"
+            ),
+            metric in {"returnedWithinHorizonRate", "rightCensoredCount", "mappedObservedCount"},
+        )
+        for family, metric, path, value_type, unit
+        in RETENTION_EVIDENCE_METRIC_SPECS
+    ),
 }
 
 
@@ -190,6 +263,28 @@ TABLE_EVIDENCE: Mapping[str, Mapping[str, TableEvidenceSpec]] = {
         "post_run_action_transitions.csv": TableEvidenceSpec("actionSequence", ("rowType", "anchorOutcome", "fromAction", "toAction"), "actionPair", "sourceActions", (TableMetricSpec("transitionRate", "ratio", "ratio", "actionCount", "denominator", "ratio"),)),
         "post_run_data_quality.csv": TableEvidenceSpec("dataQuality", ("metric",), "qualityMetric", "sourcePopulation", (TableMetricSpec("ratio", "ratio", "ratio", "count", "denominator", "ratio"),)),
     },
+    "runRetention": {
+        "run_retention_summary.csv": TableEvidenceSpec("nextRun", ("cohortType", "cohortValue"), "retentionCohort", "eligibleAnchors", (
+            TableMetricSpec("nextRunObservedRate", "ratio", "nextRunObservedRate", "nextRunObservedCount", "eligibleAnchors", "ratio", True),
+            TableMetricSpec("thresholdExceededRate", "ratio", "thresholdExceededRate", "thresholdExceededCount", "thresholdResolvedDenominator", "ratio", True),
+        )),
+        "run_retention_by_outcome.csv": TableEvidenceSpec("nextRun", ("cohortType", "cohortValue"), "anchorOutcome", "eligibleAnchors", (
+            TableMetricSpec("nextRunObservedRate", "ratio", "nextRunObservedRate", "nextRunObservedCount", "eligibleAnchors", "ratio"),
+            TableMetricSpec("thresholdExceededRate", "ratio", "thresholdExceededRate", "thresholdExceededCount", "thresholdResolvedDenominator", "ratio"),
+        )),
+        "run_retention_by_stage.csv": TableEvidenceSpec("nextRun", ("cohortType", "cohortValue"), "anchorStage", "eligibleAnchors", (
+            TableMetricSpec("nextRunObservedRate", "ratio", "nextRunObservedRate", "nextRunObservedCount", "eligibleAnchors", "ratio"),
+            TableMetricSpec("thresholdExceededRate", "ratio", "thresholdExceededRate", "thresholdExceededCount", "thresholdResolvedDenominator", "ratio"),
+        )),
+        "run_retention_latency.csv": TableEvidenceSpec("latency", ("distribution",), "retentionLatencyDistribution", "sourceDefined", (
+            TableMetricSpec("nextRunDelayP50", "scalar", "p50Seconds", unit="seconds", core=True),
+            TableMetricSpec("nextRunDelayP75", "scalar", "p75Seconds", unit="seconds"),
+        )),
+    },
+    "observedAppReturn": {},
+    "gaIdentityBridge": {},
+    "observedUninstall": {},
+    "retentionEvidence": {},
 }
 
 
@@ -233,6 +328,20 @@ REQUIRED_METRIC_KEYS = {
         "sample", "window", "feedback", "navigation", "shop", "commerce",
         "progression", "nextRun", "actionSequence", "dataQuality",
     ),
+    "runRetention": (
+        "sample", "observation", "nextRun", "latency", "thresholdClassification",
+        "dataQuality",
+    ),
+    "observedAppReturn": (
+        "sample", "return", "observation", "latency", "threshold", "dataQuality",
+    ),
+    "gaIdentityBridge": ("source", "mapping", "dataQuality"),
+    "observedUninstall": (
+        "source", "uninstall", "attribution", "mappingAge", "dataQuality",
+    ),
+    "retentionEvidence": (
+        "gameplayReturn", "appReturn", "retentionEvidence", "observedUninstall",
+    ),
 }
 REQUIRED_METRIC_KEYS["contentVersionCompare"] = (
     "sample", "stageDifficulty", "weaponPerformance", "upgradeChoice",
@@ -262,6 +371,84 @@ def required_tables(
             "absoluteDelta", "status", "warningCodes",
         )
         return result
+    if analysis_type == "runRetention":
+        cohort_columns = (
+            "cohortType", "cohortValue", "anchorFinalAttempts", "eligibleAnchors",
+            "nextRunObservedCount", "noNextRunObservedAsOfCount", "nextRunObservedRate",
+            "latencyRightCensoredCount", "latencyRightCensoredRate",
+            "returnedWithinThresholdCount", "returnedAfterThresholdCount",
+            "noNextRunBeyondThresholdCount", "thresholdRightCensoredCount",
+            "thresholdExceededCount", "thresholdResolvedDenominator",
+            "thresholdExceededRate",
+        )
+        return {
+            "run_retention_summary.csv": cohort_columns,
+            "run_retention_by_outcome.csv": cohort_columns,
+            "run_retention_by_stage.csv": cohort_columns,
+            "run_retention_latency.csv": (
+                "distribution", "observedCount", "missingCount", "p50Seconds",
+                "p75Seconds", "p90Seconds", "p95Seconds",
+            ),
+            "run_retention_data_quality.csv": ("metric", "count", "denominator", "ratio"),
+        }
+    if analysis_type == "observedAppReturn":
+        cohort = (
+            "cohortType", "cohortValue", "anchorFinalAttempts", "eligibleAnchors",
+            "ineligibleAnchors", "observedReturnCount", "observedReturnRate",
+            "coldStartReturnCount", "foregroundResumeReturnCount",
+            "rightCensoredCount", "rightCensoredRate",
+            "returnedWithinThresholdCount", "returnedAfterThresholdCount",
+            "noObservedReturnBeyondThresholdCount", "thresholdRightCensoredCount",
+            "thresholdIneligibleCount",
+        )
+        return {
+            "overall-summary.csv": cohort,
+            "outcome-summary.csv": cohort,
+            "stage-summary.csv": cohort,
+            "latency-summary.csv": (
+                "distribution", "observedCount", "p50Seconds", "p75Seconds", "p90Seconds",
+            ),
+            "data-quality-summary.csv": ("metric", "count"),
+        }
+    if analysis_type == "gaIdentityBridge":
+        return {
+            "mapping-quality-summary.csv": ("metric", "count", "denominator", "ratio"),
+            "source-summary.csv": (
+                "sourceTableKind", "finalizationState", "selectedTableCount",
+                "foregroundPhysicalRows", "logicalObservations",
+            ),
+            "conflict-summary.csv": ("mappingStatus", "count"),
+        }
+    if analysis_type == "observedUninstall":
+        return {
+            "source-summary.csv": (
+                "sourceTableKind", "finalizationState", "selectedTableCount",
+                "appRemovePhysicalRows", "logicalEvents",
+            ),
+            "attribution-summary.csv": (
+                "attributionStatus", "attributionReason", "count", "denominator", "ratio",
+            ),
+            "mapping-age-summary.csv": (
+                "distribution", "mappedCount", "p50Seconds", "p95Seconds",
+                "minSeconds", "maxSeconds",
+            ),
+        }
+    if analysis_type == "retentionEvidence":
+        return {
+            "evidence-summary.csv": ("evidenceDomain", "metric", "value", "unit"),
+            "sequence-summary.csv": ("sequenceFacet", "episodeCount"),
+            "maturity-summary.csv": (
+                "evidenceDomain", "eligibleAnchorCount", "matureAnchorCount",
+                "boundedAbsenceCount",
+            ),
+            "censoring-summary.csv": (
+                "evidenceDomain", "rightCensoredCount", "censoringRate",
+            ),
+            "uninstall-attribution-quality-summary.csv": ("metric", "count"),
+            "source-compatibility-summary.csv": (
+                "artifactType", "sourceFinalizationState", "compatible",
+            ),
+        }
     result = {
         filename: tuple(dict.fromkeys((*spec.keys, *(
             column

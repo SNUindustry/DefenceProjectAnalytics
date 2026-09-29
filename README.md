@@ -1,10 +1,27 @@
 # DefenceProjectAnalytics
 
-DefenceProject telemetry handoff, copied BigQuery schemas, and canonical SQL are the source of truth for this read-only analytics project. Phase B-4 adds aggregate Progression Next-Run analysis while retaining the Phase A foundation and the existing Stage Difficulty, Weapon Performance, and Upgrade Choice reports.
+R4-C retention-evidence integration is documented in
+[`docs/r4-c-retention-evidence-integration.md`](docs/r4-c-retention-evidence-integration.md).
+
+DefenceProject telemetry handoff, copied BigQuery schemas, and canonical SQL are the source of truth for this read-only analytics project. The read-only B-layer includes Stage, Weapon, Upgrade, Progression, Post-Run, content-version comparison, and run-based retention reports.
 
 No command in this repository creates or changes cloud resources. Queries are restricted to `SELECT`/`WITH`; service-account keys, telemetry upload secrets, raw bucket access, full local telemetry dumps, dashboards, and balancing recommendations are outside scope.
 
-Defaults are GCP project `bald-ops`, dataset `game_telemetry`, and location `asia-northeast3`. Override them with global CLI options or `DPA_GCP_PROJECT`, `DPA_BIGQUERY_DATASET`, and `DPA_BIGQUERY_LOCATION`.
+The default backend remains Production (`bald-ops.game_telemetry`). Test reads
+must select `--backend test`, which resolves to
+`bald-ops-test.game_telemetry`. Logical telemetry environment and physical
+backend must match; mismatches are configuration errors.
+
+```powershell
+defence-analytics --backend test run-retention `
+  --environment Test --content-version 1
+
+defence-analytics --backend production stage-overview `
+  --environment Production --stage-key stage1
+```
+
+Both profiles use `asia-northeast3`. `--project`, `--dataset`, and `--location`
+overrides must still match the selected approved profile.
 
 ## 1. ADC authentication
 
@@ -272,7 +289,118 @@ generated_path = generate_post_run_behavior_report(request)
 - Initial and programmatic navigation are presentations, not user intent. Best-effort event absence does not prove behavior absence.
 - No next new attempt observed within the window is not churn; offline or later-uploaded gameplay may appear in a later as-of snapshot.
 
-## 10. ContentVersion comparison
+## 10. Run Retention report
+
+Run Retention `1.0.0` links each canonical final attempt to the earliest later new gameplay
+attempt for the same persistent telemetry profile identity. A new attempt requires gameplay
+`segmentIndex=1` and must not be marked as a resume.
+
+```powershell
+defence-analytics run-retention `
+  --environment Test `
+  --content-version 1 `
+  --as-of-utc 2026-08-15T00:00:00Z
+```
+
+No default long-term threshold is applied. Optional threshold classification requires both
+`--long-term-no-next-run-threshold-days` and `--source-upload-grace-hours`.
+`returnDefinition=NewAttempt` is run-based, not an app foreground/session or uninstall signal.
+Observed latency percentiles are conditional on an observed next new attempt. Threshold facts
+preserve returned-within, returned-after, and mature no-next counts separately; right-censored
+anchors are excluded from the resolved denominator.
+
+R3-A lifecycle rows are a separate raw source and do not change this definition; see
+[`docs/r3-a-source-boundary.md`](docs/r3-a-source-boundary.md).
+
+## 10.1 GA temporal identity bridge
+
+R3-B `gaIdentityBridge` `1.0.0` joins exported GA `app_foreground` observations to
+canonical Production lifecycle telemetry through the exact `lifecycle_occurrence_id =
+lifecycleOccurrenceId` key. It records when a GA app-instance identity was observed with a
+canonical profile. It does not establish permanent ownership, a real-world person, churn, or
+uninstall.
+
+Validate the live GA and custom source fields, dry-run the bounded query, and then generate the
+artifacts:
+
+```powershell
+defence-analytics --backend production validate-r3b-contracts `
+  --ga-project bald-ops `
+  --ga-property 538301722 `
+  --ga-table events_20260928
+
+defence-analytics --backend production ga-identity-bridge `
+  --ga-project bald-ops `
+  --ga-property 538301722 `
+  --ga-stream 14908341790 `
+  --ga-start-date 2026-09-28 `
+  --ga-end-date 2026-09-28 `
+  --observation-start 2026-09-28T11:10:05Z `
+  --as-of 2026-09-29T00:00:00Z `
+  --dry-run
+```
+
+For each GA date, a finalized daily table replaces the same date's intraday table; the query never
+implicitly unions both or scans an unrestricted wildcard. Test has no GA source and fails closed
+with `GA_SOURCE_UNAVAILABLE_FOR_TEST`.
+
+The normal aggregate bundle is written below
+`reports/generated/ga-identity-bridge/<scope-id>/`. The temporal observations and intervals needed
+by R3-D are stored separately below
+`reports/restricted/ga-profile-temporal-map/<scope-hash>/`. Player, bridge, GA pseudo, and lifecycle
+occurrence identifiers are forbidden from the normal bundle, C-1 evidence, and C-2 context. R3-B
+metrics are factual evidence only; comparison, decision, and target authority remain disabled.
+See [`docs/r3-b-ga-identity-bridge-contract.md`](docs/r3-b-ga-identity-bridge-contract.md).
+
+## 10.2 Observed uninstall
+
+R3-D `observedUninstall` `1.0.0` reads GA `app_remove` events and attributes each event through
+the latest unambiguous R3-B mapping at or before its timestamp. It treats uninstall as a factual
+event for one GA app instance, never as current state, churn, abandonment, or decision authority.
+
+```powershell
+defence-analytics --backend production validate-r3d-contracts `
+  --ga-project bald-ops `
+  --ga-property 538301722 `
+  --ga-table events_20260928
+
+defence-analytics --backend production observed-uninstall `
+  --ga-project bald-ops `
+  --ga-property 538301722 `
+  --ga-stream 14908341790 `
+  --start-date 2026-09-28 `
+  --end-date 2026-09-28 `
+  --observation-start 2026-09-28T11:10:05Z `
+  --as-of 2026-09-30T00:00:00Z `
+  --dry-run
+```
+
+The command dry-runs both the bounded `app_remove` query and its R3-B bridge dependency before
+execution. Its normal aggregate bundle is written below
+`reports/generated/observed-uninstall/<scope-id>/`; raw normalized events are isolated below
+`reports/restricted/observed-uninstall-events/<scope-hash>/`. When no event exists, the result is
+a valid empty population with `NO_OBSERVED_APP_REMOVE`.
+
+See [`docs/r3-d-observed-uninstall-contract.md`](docs/r3-d-observed-uninstall-contract.md).
+
+## 10.3 R4-A Retention Evidence Policy
+
+R4-A defines a local executable authority contract for retention evidence. It
+does not query BigQuery, combine source populations, register derived metrics,
+or change C-1/C-2 behavior.
+
+```powershell
+defence-analytics validate-r4a-contracts
+```
+
+The policy keeps B-7 gameplay return, B-8 lifecycle return, and R3-D removal
+observations separate. Future fixed-horizon derived B-7/B-8 facts may receive
+runtime-resolved comparison authority only after explicit maturity, coverage,
+scope, sample, censoring, and immutable source-cut checks. Decision, target,
+guardrail, and rollback authority remain denied. See
+[`docs/r4-retention-evidence-policy.md`](docs/r4-retention-evidence-policy.md).
+
+## 11. ContentVersion comparison
 
 ContentVersion Comparison executes the existing aggregate analyses for an ordered baseline and
 candidate, keeps those source results in memory, and writes only the final comparison bundle.
@@ -321,7 +449,7 @@ generated_path = generate_content_version_comparison_report(request)
 The output path is
 `reports/generated/content-version-compare/<environment>__<stage-or-all-stages>__cv-<baseline>-vs-cv-<candidate>__<hash8>/`.
 
-## 11. Local Analysis Brief
+## 12. Local Analysis Brief
 
 Phase C-1 compiles existing aggregate report bundles entirely on the local filesystem. It does not
 authenticate, query BigQuery, execute a source analyzer, or select a latest report automatically.
@@ -352,7 +480,7 @@ For a later LLM step, provide `brief.md` and `evidence.json`; `manifest.json` is
 reproducibility checks. C-1 itself produces no interpretation or tuning decision. See
 [docs/analysis-brief-contract.md](docs/analysis-brief-contract.md).
 
-## 11.1 Evidence-Grounded LLM Analysis
+## 12.1 Evidence-Grounded LLM Analysis
 
 Phase C-2 creates a provider-neutral prompt from one C-1 bundle and validates a JSON response
 locally. The manual workflow does not call an LLM API. The optional Anthropic transport calls only
@@ -483,7 +611,7 @@ and retry count. They never contain the API key, raw provider response, or tool 
 `analysis-prompt` and `analysis-validate` remain supported for manual use. Anthropic execution does
 not authorize Unity edits, balance changes, commits, releases, or deployment.
 
-## 12. Population, resume, and completeness
+## 13. Population, resume, and completeness
 
 - Final attempts come only from `telemetry_attempt_outcomes_v1`; raw `telemetry_run_summary` rows are not counted as attempts.
 - Clear rate is `Clear / (Clear + Dead)`; Abandon is reported separately.
@@ -495,11 +623,11 @@ not authorize Unity edits, balance changes, commits, releases, or deployment.
 - Incoming damage and threat include all eligible resume segments once. Final lethal cause and player state use only the final Dead run.
 - Lethal-hit events can precede revival and are never treated as final death counts.
 
-## 13. Warning interpretation
+## 14. Warning interpretation
 
 Warnings do not fail report generation. Stage Difficulty keeps its existing thresholds. Weapon reports identify detail and DPS coverage issues. Upgrade reports identify incomplete/truncated presentations, same-segment selection-count mismatches, unlinked selections, approximate context, low candidate/pair samples, and observational association bias. Progression reports distinguish low event/episode/pair samples, unbounded activity-only events, missing immediate context, open/resume exclusions, right-censoring, cross-content exclusions, and multi-progression confounding. Treat affected metrics as descriptive aggregates with the exact denominator recorded in metadata and CSV.
 
-## 14. LLM handoff
+## 15. LLM handoff
 
 The report contract is documented in [docs/report-contract.md](docs/report-contract.md). The recommended files to provide to an LLM are:
 
@@ -574,6 +702,21 @@ Post-run artifacts distinguish presentation from user navigation and observed At
 from durable committed-result presence. They contain aggregate dimensions only and never raw
 player, attempt, run, event, operation, presentation, batch, or upload identifiers.
 
+For Run Retention, provide:
+
+```text
+report.md
+metrics.json
+metadata.json
+tables/run_retention_summary.csv
+tables/run_retention_by_outcome.csv
+tables/run_retention_latency.csv
+tables/run_retention_data_quality.csv
+```
+
+Run-retention artifacts are aggregate-only. They expose conditional observed latency and explicit
+censoring/threshold denominators, never raw player, attempt, or run identifiers.
+
 Feedback metrics are historical-only after Phase R1. Existing `1.0.0` bundles remain readable,
 but new B-5/B-6/C-1/C-2 outputs do not use feedback as comparison evidence or decision authority.
 
@@ -603,3 +746,11 @@ python -m build
 ```
 
 See [docs/handoff/README.md](docs/handoff/README.md) for the source telemetry, privacy, join, completeness, and release-identity contracts.
+
+## R4-B retention evidence
+
+R4-B composes immutable restricted B-7, B-8, and R3-D facts into fixed-horizon
+maturity, censoring, and temporal sequence evidence. See
+[`docs/r4-b-retention-evidence-analysis.md`](docs/r4-b-retention-evidence-analysis.md).
+The `retention-evidence` command is local/read-only and keeps raw identities in
+its separate restricted episode artifact.

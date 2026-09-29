@@ -9,7 +9,7 @@ from typing import Any, Mapping
 
 
 ANALYSIS_BRIEF_VERSION = "1.0.0"
-SELECTION_POLICY_VERSION = "1.1.0"
+SELECTION_POLICY_VERSION = "1.2.0"
 SINGLE_MODE = "singleVersion"
 COMPARISON_MODE = "contentVersionCompare"
 DOMAIN_ORDER = (
@@ -18,6 +18,11 @@ DOMAIN_ORDER = (
     "upgradeChoice",
     "progressionNextRun",
     "postRunBehavior",
+    "runRetention",
+    "observedAppReturn",
+    "gaIdentityBridge",
+    "observedUninstall",
+    "retentionEvidence",
 )
 
 
@@ -167,6 +172,7 @@ class EvidenceCandidate:
     priority: int
     core: bool = False
     source_designated: bool = False
+    authority: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def canonical_identity(self) -> tuple[str, ...]:
@@ -208,6 +214,7 @@ class EvidenceItem:
     priority: int
     core: bool
     source_designated: bool
+    authority: Mapping[str, Any]
     provenance: EvidenceProvenance
 
 

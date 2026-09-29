@@ -338,7 +338,10 @@ def test_final_schema_retains_required_limits_and_rollback_shape(tmp_path: Path)
         "observationIds", "hypothesisIds", "evidenceGapIds", "changeCandidateIds"
     ):
         assert executive["properties"][field]["maxItems"] == 3
-    assert wire["properties"]["executiveQualitativeOverview"] == {"type": "string"}
+    executive_overview = wire["properties"]["executiveQualitativeOverview"]
+    assert executive_overview["type"] == "string"
+    assert executive_overview["pattern"] == "^[^0-9]*$"
+    assert "Numeric-free qualitative prose" in executive_overview["description"]
     rollback = canonical["properties"]["validationPlans"]["items"]["properties"][
         "rollbackIndicators"
     ]
@@ -594,7 +597,7 @@ def test_canonical_and_wire_complexity_profile_is_stable(tmp_path: Path) -> None
         "enums": 10,
             "requiredFields": 73,
             "optionalProperties": 0,
-        "maxItems": 0,
+        "maxItems": 8,
         "additionalFalse": 7,
         "refs": 0,
         "maxDepth": 8,
@@ -628,7 +631,7 @@ def test_canonical_and_wire_complexity_profile_is_stable(tmp_path: Path) -> None
             "objects": 6, "arrays": 8, "requiredProperties": 19, "logicalDepth": 8,
             "anyOf": 0, "nullable": 0, "optionalProperties": 0,
             "evidenceRefFields": 4, "evidenceRefEnumOccurrences": 4,
-                "evidenceRefEnumValues": 424, "schemaChars": 3137,
+                "evidenceRefEnumValues": 424, "schemaChars": 4565,
                 "metricRefFields": 0, "metricRefEnumOccurrences": 0,
                 "metricRefEnumValues": 0,
                 "warningRefFields": 1, "warningRefEnumOccurrences": 1,
@@ -638,7 +641,7 @@ def test_canonical_and_wire_complexity_profile_is_stable(tmp_path: Path) -> None
                 "objects": 5, "arrays": 14, "requiredProperties": 35, "logicalDepth": 10,
             "anyOf": 0, "nullable": 0, "optionalProperties": 0,
             "evidenceRefFields": 4, "evidenceRefEnumOccurrences": 4,
-                            "evidenceRefEnumValues": 424, "schemaChars": 5119,
+                            "evidenceRefEnumValues": 424, "schemaChars": 7949,
                 "metricRefFields": 2, "metricRefEnumOccurrences": 2,
                     "metricRefEnumValues": 177,
                 "warningRefFields": 2, "warningRefEnumOccurrences": 2,
@@ -648,11 +651,12 @@ def test_canonical_and_wire_complexity_profile_is_stable(tmp_path: Path) -> None
             "objects": 4, "arrays": 10, "requiredProperties": 15, "logicalDepth": 10,
             "anyOf": 0, "nullable": 0, "optionalProperties": 0,
             "evidenceRefFields": 0, "evidenceRefEnumOccurrences": 0,
-                    "evidenceRefEnumValues": 0, "schemaChars": 2776,
+                    "evidenceRefEnumValues": 0,
                 "metricRefFields": 3, "metricRefEnumOccurrences": 3,
                     "metricRefEnumValues": 264,
                 "warningRefFields": 0, "warningRefEnumOccurrences": 0,
-                "warningRefEnumValues": 0,
+                    "warningRefEnumValues": 0,
+                    "schemaChars": 3023,
         },
     }
     assert {
@@ -682,4 +686,4 @@ def test_canonical_and_wire_complexity_profile_is_stable(tmp_path: Path) -> None
         )["combined"]["schemaChars"]
         for stage in ("A", "B", "C")
     }
-    assert before == {"A": 1811, "B": 3276, "C": 1522}
+    assert before == {"A": 3003, "B": 5656, "C": 1720}

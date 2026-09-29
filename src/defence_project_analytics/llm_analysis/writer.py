@@ -31,7 +31,8 @@ from defence_project_analytics.llm_analysis.renderers import (
 from defence_project_analytics.reporting.renderers import render_json, to_external
 from defence_project_analytics.metric_registry import (
     METRIC_REGISTRY_VERSION,
-    is_decision_evidence_item,
+    EvidenceUse,
+    is_evidence_item_eligible,
 )
 
 
@@ -208,7 +209,7 @@ def write_analysis_prompt(
         "outputLanguage": package.request.output_language,
         "promptCharacterCount": len(package.prompt),
         "evidenceCount": sum(
-            is_decision_evidence_item(item)
+            is_evidence_item_eligible(item, EvidenceUse.FACTUAL_REFERENCE)
             for item in package.source.evidence_by_id.values()
         ),
         "providerCalls": 0,
@@ -305,6 +306,17 @@ def write_validated_analysis(
         output_language=package.request.output_language,
     )
     generated_at = _clock_value(clock)
+    source_bundles = [
+        {
+            key: item.get(key)
+            for key in (
+                "sourceBundleId", "analysisType", "domain", "bundleName",
+                "portablePath", "portablePathAvailable", "bundleDigest",
+            )
+        }
+        for item in package.source.manifest.get("sourceBundles", ())
+        if isinstance(item, Mapping)
+    ]
     manifest = {
         "analysisVersion": ANALYSIS_VERSION,
         "analysisPolicyVersion": ANALYSIS_POLICY_VERSION,
@@ -314,6 +326,8 @@ def write_validated_analysis(
         "generatedAtUtc": generated_at,
         "analysisExecutionId": execution_id,
         "sourceBriefIdentity": package.source.identity,
+        "sourceBriefPortablePath": package.source.portable_path,
+        "sourceBundles": source_bundles,
         "sourceArtifacts": package.source.artifacts,
         "requestId": package.request_id,
         "requestDigest": package.request_digest,
@@ -337,7 +351,7 @@ def write_validated_analysis(
         "automaticModificationAuthorized": False,
         "automaticDeploymentAuthorized": False,
         "bigQueryEstimatedBytes": 0,
-        "cloudAccessPerformed": False,
+        "cloudAccessPerformed": provider_mode == "anthropicApi",
         "sourceAnalyzersExecuted": False,
     }
     if provider_metadata:

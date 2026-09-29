@@ -8,8 +8,8 @@ from typing import Any, Mapping, Protocol
 
 
 ANALYSIS_VERSION = "1.0.0"
-ANALYSIS_POLICY_VERSION = "1.3.0"
-PROMPT_TEMPLATE_VERSION = "1.3.0"
+ANALYSIS_POLICY_VERSION = "1.6.0"
+PROMPT_TEMPLATE_VERSION = "1.5.0"
 RESPONSE_CONTRACT_VERSION = "1.0.0"
 DEFAULT_MAX_PROMPT_CHARACTERS = 400_000
 DEFAULT_MAX_RESPONSE_CHARACTERS = 100_000
@@ -73,6 +73,7 @@ KNOWN_ANALYSES = frozenset({
     "upgradeChoice",
     "progressionNextRun",
     "postRunBehavior",
+    "retentionEvidence",
     "contentVersionCompare",
 })
 MINIMUM_REQUIREMENTS = frozenset({

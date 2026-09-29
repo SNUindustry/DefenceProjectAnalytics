@@ -49,26 +49,28 @@ from defence_project_analytics.llm_analysis.warning_authority import (
     model_visible_brief,
 )
 from defence_project_analytics.metric_registry import (
-    is_decision_evidence_item,
+    EvidenceUse,
+    is_evidence_item_eligible,
+    monitor_metric_keys,
     target_metric_keys,
 )
 from defence_project_analytics.reporting.renderers import to_external
 
 
-ANTHROPIC_INPUT_PROJECTION_VERSION = "1.0.0"
+ANTHROPIC_INPUT_PROJECTION_VERSION = "1.2.0"
 ANTHROPIC_FLAT_RESPONSE_VERSION = "1.0.0"
 ANTHROPIC_SERIALIZED_ENVELOPE_VERSION = "1.0.0"
 ANTHROPIC_STRICT_TOOL_TRANSPORT_VERSION = "1.0.0"
-ANTHROPIC_THREE_STAGE_STRICT_TOOL_TRANSPORT_VERSION = "1.8.0"
-ANTHROPIC_STAGE_CONTEXT_VERSION = "1.3.0"
-ANTHROPIC_STAGE_B_CONTEXT_VERSION = "1.4.0"
-ANTHROPIC_STAGE_C_CONTEXT_VERSION = "1.5.0"
+ANTHROPIC_THREE_STAGE_STRICT_TOOL_TRANSPORT_VERSION = "1.10.0"
+ANTHROPIC_STAGE_CONTEXT_VERSION = "1.4.0"
+ANTHROPIC_STAGE_B_CONTEXT_VERSION = "1.6.0"
+ANTHROPIC_STAGE_C_CONTEXT_VERSION = "1.7.0"
 _ANTHROPIC_STAGE_CONTEXT_VERSIONS = {
     "A": ANTHROPIC_STAGE_CONTEXT_VERSION,
     "B": ANTHROPIC_STAGE_B_CONTEXT_VERSION,
     "C": ANTHROPIC_STAGE_C_CONTEXT_VERSION,
 }
-ANTHROPIC_EVIDENCE_ALIAS_VERSION = "1.0.0"
+ANTHROPIC_EVIDENCE_ALIAS_VERSION = "1.1.0"
 ANTHROPIC_METRIC_ALIAS_VERSION = "1.0.0"
 ANTHROPIC_WARNING_ALIAS_VERSION = "1.0.0"
 ANTHROPIC_VALIDATION_PLAN_REF_VERSION = "1.0.0"
@@ -256,7 +258,7 @@ class MetricAliasTable:
             raise AnthropicMetricAliasError(
                 "Anthropic metric alias mapping contains duplicate canonical keys."
             )
-        if set(self.canonical_metric_keys) != set(target_metric_keys()):
+        if set(self.canonical_metric_keys) != set(_provider_metric_keys()):
             raise AnthropicMetricAliasError(
                 "Anthropic metric aliases do not match the exact metric registry."
             )
@@ -558,10 +560,16 @@ class ValidationPlanRefTable:
         return self.canonical_pairs[provider_ref - 1]
 
 
+def _provider_metric_keys() -> frozenset[tuple[str, str, str]]:
+    """Canonical provider keys; R4 additions are MonitorOnly candidates."""
+
+    return target_metric_keys() | monitor_metric_keys()
+
+
 def build_metric_alias_table() -> MetricAliasTable:
     """Build deterministic aliases from the actual exact metric registry."""
 
-    table = MetricAliasTable(tuple(sorted(target_metric_keys())))
+    table = MetricAliasTable(tuple(sorted(_provider_metric_keys())))
     if tuple(table.canonical_key(ref) for ref in table.provider_refs) != table.canonical_metric_keys:
         raise AnthropicMetricAliasError(
             "Anthropic metric alias inverse validation failed."
@@ -580,7 +588,7 @@ def build_warning_alias_table(package: AnalysisPromptPackage) -> WarningAliasTab
     return table
 
 
-def _decision_evidence_items(
+def _factual_evidence_items(
     package: AnalysisPromptPackage,
 ) -> list[Mapping[str, Any]]:
     document = to_external(package.source.evidence)
@@ -592,14 +600,15 @@ def _decision_evidence_items(
     return [
         item
         for item in items
-        if isinstance(item, Mapping) and is_decision_evidence_item(item)
+        if isinstance(item, Mapping)
+        and is_evidence_item_eligible(item, EvidenceUse.FACTUAL_REFERENCE)
     ]
 
 
 def build_evidence_alias_table(package: AnalysisPromptPackage) -> EvidenceAliasTable:
     """Build the deterministic alias table from validated C-1 evidence ordering."""
 
-    items = _decision_evidence_items(package)
+    items = _factual_evidence_items(package)
     canonical_ids: list[str] = []
     for item in items:
         if not isinstance(item, Mapping):
@@ -616,7 +625,7 @@ def build_evidence_alias_table(package: AnalysisPromptPackage) -> EvidenceAliasT
     eligible_ids = {
         evidence_id
         for evidence_id, item in package.source.evidence_by_id.items()
-        if is_decision_evidence_item(item)
+        if is_evidence_item_eligible(item, EvidenceUse.FACTUAL_REFERENCE)
     }
     if set(table.canonical_evidence_ids) != eligible_ids:
         raise AnthropicEvidenceAliasError(
@@ -627,6 +636,20 @@ def build_evidence_alias_table(package: AnalysisPromptPackage) -> EvidenceAliasT
             "Anthropic Evidence alias inverse validation failed."
         )
     return table
+
+
+def decision_evidence_refs(
+    package: AnalysisPromptPackage, table: EvidenceAliasTable
+) -> tuple[int, ...]:
+    """Subset of the factual namespace authorized for Stage B support."""
+
+    return tuple(
+        reference for reference in table.provider_refs
+        if is_evidence_item_eligible(
+            package.source.evidence_by_id[table.canonical_id(reference)],
+            EvidenceUse.DECISION_SUPPORT,
+        )
+    )
 
 
 def build_validation_plan_ref_table(
@@ -1244,12 +1267,13 @@ def assert_provider_metric_output_schema_is_aliased(
     aliases: MetricAliasTable,
     *,
     stage: str,
+    provider_refs: Sequence[int] | None = None,
 ) -> None:
     """Fail before preflight unless every B/C output metric path is an exact int enum."""
 
     if stage not in {"B", "C"}:
         return
-    expected_enum = list(aliases.provider_refs)
+    expected_enum = list(provider_refs or aliases.provider_refs)
     expected_nullable_enum = [_NULL_METRIC_REFERENCE, *expected_enum]
     found_fields: list[str] = []
     forbidden_fields: list[str] = []
@@ -1390,29 +1414,13 @@ def build_compact_llm_payload(
     """Factor repeated C-1 metadata without changing canonical evidence semantics."""
 
     evidence_document = to_external(package.source.evidence)
-    items = _decision_evidence_items(package)
+    items = _factual_evidence_items(package)
     if not items:
         raise AnthropicRequestValidationError(
             "Canonical evidence document has no selected evidence."
         )
 
-    first = items[0]
-    provenance = first.get("provenance")
-    if not isinstance(provenance, Mapping):
-        raise AnthropicRequestValidationError(
-            "Canonical evidence provenance is invalid."
-        )
-    source_analysis_type = first.get("sourceAnalysisType")
-    source_bundle_id = provenance.get("sourceBundleId")
-    source_bundle_digest = provenance.get("sourceBundleDigest")
-    if not all(
-        isinstance(value, str) and value
-        for value in (source_analysis_type, source_bundle_id, source_bundle_digest)
-    ):
-        raise AnthropicRequestValidationError(
-            "Canonical evidence source identity is invalid."
-        )
-
+    source_values: set[tuple[str, str, str]] = set()
     artifact_values: set[tuple[str, str]] = set()
     quality_values: set[tuple[str, tuple[str, ...]]] = set()
     for item in items:
@@ -1421,14 +1429,16 @@ def build_compact_llm_payload(
             raise AnthropicRequestValidationError(
                 "Canonical evidence provenance is invalid."
             )
-        if (
-            item.get("sourceAnalysisType") != source_analysis_type
-            or item_provenance.get("sourceBundleId") != source_bundle_id
-            or item_provenance.get("sourceBundleDigest") != source_bundle_digest
-        ):
+        source_value = (
+            item.get("sourceAnalysisType"),
+            item_provenance.get("sourceBundleId"),
+            item_provenance.get("sourceBundleDigest"),
+        )
+        if not all(isinstance(value, str) and value for value in source_value):
             raise AnthropicRequestValidationError(
-                "Canonical evidence contains mixed source-bundle identity."
+                "Canonical evidence source identity is invalid."
             )
+        source_values.add(source_value)
         artifact = item_provenance.get("sourceArtifact")
         artifact_digest = item_provenance.get("sourceArtifactSha256")
         if not isinstance(artifact, str) or not isinstance(artifact_digest, str):
@@ -1445,6 +1455,11 @@ def build_compact_llm_payload(
     quality_refs = {
         value: f"Q{index:03d}"
         for index, value in enumerate(sorted(quality_values), start=1)
+    }
+    single_source = len(source_values) == 1
+    source_refs = {
+        value: f"S{index:03d}"
+        for index, value in enumerate(sorted(source_values), start=1)
     }
     artifacts = {
         reference: {"path": value[0], "sha256": value[1]}
@@ -1478,18 +1493,38 @@ def build_compact_llm_payload(
             "qualitySetRef": quality_refs[_quality_key(item)],
             "sourceRowKey": item_provenance["sourceRowKey"],
         })
+        if not single_source:
+            compact["sourceRef"] = source_refs[(
+                item["sourceAnalysisType"],
+                item_provenance["sourceBundleId"],
+                item_provenance["sourceBundleDigest"],
+            )]
         compact_items.append(compact)
 
     compact_brief = model_visible_brief(package)
-    payload: dict[str, Any] = {
-        "projectionVersion": ANTHROPIC_INPUT_PROJECTION_VERSION,
-        "source": {
-            "identity": to_external(package.source.identity),
-            "analysisBriefVersion": evidence_document.get("analysisBriefVersion"),
+    compact_source: dict[str, Any] = {
+        "identity": to_external(package.source.identity),
+        "analysisBriefVersion": evidence_document.get("analysisBriefVersion"),
+    }
+    if single_source:
+        source_analysis_type, source_bundle_id, source_bundle_digest = next(iter(source_values))
+        compact_source.update({
             "sourceAnalysisType": source_analysis_type,
             "sourceBundleId": source_bundle_id,
             "sourceBundleDigest": source_bundle_digest,
-        },
+        })
+    else:
+        compact_source["sourceBundles"] = {
+            reference: {
+                "sourceAnalysisType": value[0],
+                "sourceBundleId": value[1],
+                "sourceBundleDigest": value[2],
+            }
+            for value, reference in source_refs.items()
+        }
+    payload: dict[str, Any] = {
+        "projectionVersion": ANTHROPIC_INPUT_PROJECTION_VERSION,
+        "source": compact_source,
         "analysisObjective": package.request.analysis_objective,
         "outputLanguage": package.request.output_language,
         "artifacts": artifacts,
@@ -1522,13 +1557,27 @@ def expand_compact_evidence_items(
     if not isinstance(identity, Mapping):
         raise AnthropicRequestValidationError("Compact source identity is invalid.")
     mode = identity.get("mode")
-    source_analysis_type = source.get("sourceAnalysisType")
-    bundle_id = source.get("sourceBundleId")
-    bundle_digest = source.get("sourceBundleDigest")
+    source_bundles = source.get("sourceBundles")
     result: list[Mapping[str, Any]] = []
     for row in rows:
         if not isinstance(row, Mapping):
             raise AnthropicRequestValidationError("Compact evidence row is invalid.")
+        if source_bundles is not None:
+            source_entry = (
+                source_bundles.get(row.get("sourceRef"))
+                if isinstance(source_bundles, Mapping) else None
+            )
+            if not isinstance(source_entry, Mapping):
+                raise AnthropicRequestValidationError("Compact source reference is invalid.")
+        else:
+            source_entry = source
+        source_analysis_type = source_entry.get("sourceAnalysisType")
+        bundle_id = source_entry.get("sourceBundleId")
+        bundle_digest = source_entry.get("sourceBundleDigest")
+        if not all(isinstance(value, str) and value for value in (
+            source_analysis_type, bundle_id, bundle_digest,
+        )):
+            raise AnthropicRequestValidationError("Compact source identity is invalid.")
         artifact = artifacts.get(row.get("artifactRef"))
         quality = quality_sets.get(row.get("qualitySetRef"))
         if not isinstance(artifact, Mapping) or not isinstance(quality, Mapping):
@@ -1538,7 +1587,7 @@ def expand_compact_evidence_items(
         expanded = {
             key: deepcopy(value)
             for key, value in row.items()
-            if key not in {"artifactRef", "qualitySetRef", "sourceRowKey"}
+            if key not in {"artifactRef", "qualitySetRef", "sourceRowKey", "sourceRef"}
         }
         expanded.update({
             "canonicalIdentity": [
@@ -1569,7 +1618,7 @@ def expand_compact_evidence_items(
             "metricFamily", "metric", "entityType", "entityKey", "dimension",
             "dimensionValue", "valueType", "unit", "observationUnit", "value",
             "status", "warningCodes", "sample", "priority", "core",
-            "sourceDesignated", "provenance",
+            "sourceDesignated", "authority", "provenance",
         )
         result.append({key: expanded[key] for key in canonical_order})
     return tuple(result)
@@ -1598,7 +1647,11 @@ def build_anthropic_prompt_parts(
     return system, [{"role": "user", "content": user}], payload
 
 
-def _metric_catalog(aliases: MetricAliasTable) -> list[Mapping[str, Any]]:
+def _metric_catalog(
+    aliases: MetricAliasTable,
+    *,
+    allowed_keys: frozenset[tuple[str, str, str]] | None = None,
+) -> list[Mapping[str, Any]]:
     """Expose the exact registry only as a compact provider selection catalog."""
 
     return [
@@ -1609,6 +1662,7 @@ def _metric_catalog(aliases: MetricAliasTable) -> list[Mapping[str, Any]]:
         for reference, key in zip(
             aliases.provider_refs, aliases.canonical_metric_keys, strict=True
         )
+        if allowed_keys is None or key in allowed_keys
     ]
 
 
@@ -1619,7 +1673,7 @@ def _metric_key_from_reference(value: Any) -> tuple[str, str, str]:
         )
     parts = value.split(_METRIC_SEPARATOR)
     key = tuple(parts)
-    if len(parts) != 3 or key not in target_metric_keys():
+    if len(parts) != 3 or key not in _provider_metric_keys():
         raise AnthropicMetricAliasError(
             "Anthropic canonical metric reference is not in the exact registry."
         )
@@ -2726,13 +2780,22 @@ def build_anthropic_stage_context(
             )
         metric_aliases = metric_aliases or build_metric_alias_table()
         output_refs = output_refs or build_stage_output_ref_tables(stage_a)
+        decision_refs = decision_evidence_refs(package, evidence_aliases)
+        decision_ref_set = set(decision_refs)
         return {
             **common,
             "projectionVersion": provider_compact["projectionVersion"],
             "artifacts": deepcopy(provider_compact["artifacts"]),
             "qualitySets": deepcopy(provider_compact["qualitySets"]),
-            "evidence": deepcopy(provider_compact["evidence"]),
-            "metricCatalog": _metric_catalog(metric_aliases),
+            "evidence": [
+                deepcopy(item)
+                for item in provider_compact["evidence"]
+                if item.get("evidenceRef") in decision_ref_set
+            ],
+            "decisionEvidenceRefs": list(decision_refs),
+            "metricCatalog": _metric_catalog(
+                metric_aliases, allowed_keys=target_metric_keys()
+            ),
             "validatedPriorAnalysis": _project_prior_output_refs(
                 project_canonical_prior_warning_aliases(
                     project_canonical_stage_evidence_aliases(
@@ -2818,6 +2881,7 @@ def _stage_strict_tool_instruction(stage: str) -> str:
     focus = {
         "A": (
             "Frame direct observations, bounded interpretations, and evidence gaps. "
+            "Factual-only Evidence may be cited here; it does not gain decision or target authority. "
             f"Canonical Evidence is the only factual authority. Return at most {MAX_OBSERVATIONS} "
             f"observations, {MAX_RESPONSE_SECTION_ITEMS} interpretations, and "
             f"{MAX_RESPONSE_SECTION_ITEMS} evidence gaps. IDs must be unique uppercase "
@@ -2835,6 +2899,9 @@ def _stage_strict_tool_instruction(stage: str) -> str:
         ),
         "B": (
             "Produce hypotheses and change candidates using the complete canonical Evidence. "
+            "Only refs in decisionEvidenceRefs may support hypotheses or change candidates; "
+            "if that catalog is empty, return empty hypothesis and candidate sections. "
+            "Factual-only prior observations provide context but cannot justify a decision. "
             "validatedPriorAnalysis is derived context, not independent factual evidence. Return "
             f"at most {MAX_RESPONSE_SECTION_ITEMS} hypotheses and "
             f"{MAX_RESPONSE_SECTION_ITEMS} change candidates. The host assigns canonical hypothesis, "
@@ -2847,6 +2914,9 @@ def _stage_strict_tool_instruction(stage: str) -> str:
             "canonical ID, and the canonical validator still requires plans for actionable candidates. Do not put numeric facts "
             "in freeform prose: no measurements, counts, percentages, ratios, deltas, or tuning magnitudes. Use only "
             "the dedicated structured numeric fields when the canonical contract explicitly permits them. "
+            "Every Evidence reference array must contain no more than twenty unique refs. "
+            "Describe a proposed change only as an action to test, using tentative prospective wording; "
+            "do not state that a metric caused another outcome or that the change will certainly improve it. "
             "For EvidenceMetric and EvidenceEntity targets, structured identity is authoritative and the host "
             "sets canonical description to null. conceptualTargetDescription is optional semantic context only "
             "for Conceptual targets; the host derives their required game-design-context flag. "
@@ -2858,6 +2928,10 @@ def _stage_strict_tool_instruction(stage: str) -> str:
         ),
         "C": (
             "Link validation plans and select executive-summary IDs from validated prior analysis. "
+            "Only target-eligible metrics may be targets, guardrails, or rollback indicators. "
+            "A supplied retentionEvidence metric may be used only in metricsToWatch as MonitorOnly "
+            "when its authority says monitorOnlyEligible=true and runtimeComparison.decision=Allowed. "
+            "It must never be used in a guardrail or rollback indicator. "
             "Do not add factual claims or numeric facts; use only integer metricRef values from metricCatalog. "
             f"Return at most {MAX_RESPONSE_SECTION_ITEMS} validation plans. Use each supplied integer "
             "validationPlanRef exactly once and do not invent plan or candidate IDs. Executive-summary selections use "
@@ -3007,7 +3081,7 @@ def encode_metric_reference(domain: str, family: str, metric: str) -> str:
     if any(not value or _METRIC_SEPARATOR in value for value in values):
         raise AnthropicMalformedResponseError("Anthropic metric reference is invalid.")
     key = tuple(values)
-    if key not in target_metric_keys():
+    if key not in _provider_metric_keys():
         raise AnthropicMalformedResponseError(
             "Anthropic metric reference is not in the canonical registry."
         )
@@ -3116,7 +3190,7 @@ def _decode_metric_reference(value: Any) -> dict[str, str]:
     if not isinstance(value, str):
         raise AnthropicMalformedResponseError("Anthropic metric reference is invalid.")
     parts = value.split(_METRIC_SEPARATOR)
-    if len(parts) != 3 or tuple(parts) not in target_metric_keys():
+    if len(parts) != 3 or tuple(parts) not in _provider_metric_keys():
         raise AnthropicMalformedResponseError(
             "Anthropic metric reference is not in the canonical registry."
         )

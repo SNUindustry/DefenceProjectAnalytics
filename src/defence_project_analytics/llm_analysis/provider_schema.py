@@ -309,6 +309,22 @@ def anthropic_flat_wire_properties(
     """Return reusable flat DTO fields for canonical or provider-local transport."""
 
     string = {"type": "string"}
+    numeric_free_string = {
+        "type": "string",
+        "pattern": "^[^0-9]*$",
+        "description": (
+            "Numeric-free qualitative prose. Do not write digits, counts, percentages, "
+            "ratios, deltas, measurements, or tuning magnitudes; cite structured Evidence instead."
+        ),
+    }
+    change_description_string = {
+        **numeric_free_string,
+        "description": (
+            "Numeric-free proposed action to test. Use tentative prospective wording. Do not "
+            "claim that an observed metric caused another outcome or that this action will "
+            "certainly improve it."
+        ),
+    }
     evidence_reference = dict(evidence_reference_schema or string)
     metric_reference = dict(metric_reference_schema or string)
     warning_reference = dict(warning_reference_schema or string)
@@ -326,6 +342,15 @@ def anthropic_flat_wire_properties(
     def wire_array(items: Mapping[str, Any]) -> dict[str, Any]:
         return {"type": "array", "items": dict(items)}
 
+    def evidence_array() -> dict[str, Any]:
+        return {
+            "type": "array",
+            "items": dict(evidence_reference),
+            "maxItems": 20,
+            "uniqueItems": True,
+            "description": "Use no more than twenty unique Evidence refs.",
+        }
+
     def warning_array() -> dict[str, Any]:
         result = wire_array(warning_reference)
         if provider_warning_empty_only:
@@ -335,27 +360,27 @@ def anthropic_flat_wire_properties(
     observation = _object({
         "id": string,
         "findingType": _enum(FINDING_TYPES),
-        "qualitativeStatement": string,
-        evidence_field("evidenceIds", "evidenceRefs"): wire_array(evidence_reference),
+        "qualitativeStatement": numeric_free_string,
+        evidence_field("evidenceIds", "evidenceRefs"): evidence_array(),
         "importance": _enum(IMPORTANCE_VALUES),
     })
     interpretation = _object({
         "id": string,
-        "statement": string,
-        evidence_field("evidenceIds", "evidenceRefs"): wire_array(evidence_reference),
+        "statement": numeric_free_string,
+        evidence_field("evidenceIds", "evidenceRefs"): evidence_array(),
         evidence_field(
             "limitationEvidenceIds", "limitationEvidenceRefs"
-        ): wire_array(evidence_reference),
+        ): evidence_array(),
         warning_field(): warning_array(),
     })
     hypothesis_properties: dict[str, Any] = {
-        "statement": string,
+        "statement": numeric_free_string,
         evidence_field(
             "supportingEvidenceIds", "supportingEvidenceRefs"
-        ): wire_array(evidence_reference),
+        ): evidence_array(),
         evidence_field(
             "counterEvidenceIds", "counterEvidenceRefs"
-        ): wire_array(evidence_reference),
+        ): evidence_array(),
     }
     if not provider_derived_counter_status:
         hypothesis_properties["counterEvidenceSearchStatus"] = _enum(
@@ -369,25 +394,25 @@ def anthropic_flat_wire_properties(
         evidence_gap_ref_array["maxItems"] = 0
     hypothesis_properties.update({
         warning_field(): warning_array(),
-        "assumptions": wire_array(string),
-        "alternativeExplanations": wire_array(string),
+        "assumptions": wire_array(numeric_free_string),
+        "alternativeExplanations": wire_array(numeric_free_string),
         (
             "evidenceGapRefs"
             if provider_evidence_gap_ref_fields
             else "evidenceGapIds"
         ): evidence_gap_ref_array,
-        "falsificationChecks": wire_array(string),
+        "falsificationChecks": wire_array(numeric_free_string),
     })
     if not provider_host_assigned_stage_b_ids:
         hypothesis_properties = {"id": string, **hypothesis_properties}
     hypothesis = _object(hypothesis_properties)
     evidence_gap = _object({
         "id": string,
-        "question": string,
-        "whyItMatters": string,
+        "question": numeric_free_string,
+        "whyItMatters": numeric_free_string,
         evidence_field(
             "relatedEvidenceIds", "relatedEvidenceRefs"
-        ): wire_array(evidence_reference),
+        ): evidence_array(),
         "suggestedAnalysis": _enum(frozenset({*KNOWN_ANALYSES, "None"})),
         "requiresNewTelemetry": {"type": "boolean"},
     })
@@ -408,23 +433,23 @@ def anthropic_flat_wire_properties(
         # Anthropic target authority is intentionally split by target type.
         # The conceptual description is ignored for structured targets, while
         # the structured context flag is ignored for Conceptual targets.
-        "conceptualTargetDescription": string,
+        "conceptualTargetDescription": numeric_free_string,
         "structuredTargetRequiresGameDesignContext": {"type": "boolean"},
         "actionType": _enum(ACTION_TYPES),
-        "changeDescription": string,
-        "changeParameter": string,
+        "changeDescription": change_description_string,
+        "changeParameter": numeric_free_string,
         "changeDirection": _enum(DIRECTIONS),
         "changeAmountPercentPresent": {"type": "boolean"},
         "changeAmountPercent": {"type": "number"},
         "changeHeuristic": {"type": "boolean"},
-        "changeMagnitudeBasis": string,
-        "rationale": string,
+        "changeMagnitudeBasis": numeric_free_string,
+        "rationale": numeric_free_string,
         evidence_field(
             "supportingEvidenceIds", "supportingEvidenceRefs"
-        ): wire_array(evidence_reference),
+        ): evidence_array(),
         evidence_field(
             "counterEvidenceIds", "counterEvidenceRefs"
-        ): wire_array(evidence_reference),
+        ): evidence_array(),
     }
     if not provider_derived_counter_status:
         change_candidate_properties["counterEvidenceSearchStatus"] = _enum(
@@ -432,7 +457,7 @@ def anthropic_flat_wire_properties(
         )
     change_candidate_properties.update({
         warning_field(): warning_array(),
-        "risks": wire_array(string),
+        "risks": wire_array(numeric_free_string),
         (
             "includeValidationPlan"
             if provider_host_assigned_stage_b_ids
@@ -537,7 +562,7 @@ def anthropic_flat_wire_properties(
         executive_field("executiveChangeCandidateIds", "executiveChangeCandidateRefs"),
     ))
     return {
-        "executiveQualitativeOverview": string,
+        "executiveQualitativeOverview": numeric_free_string,
         **executive_fields,
         "observations": wire_array(observation),
         "interpretations": wire_array(interpretation),
@@ -574,7 +599,7 @@ ANTHROPIC_STRICT_TOOL_SECTIONS = (
     ),
 )
 
-ANTHROPIC_THREE_STAGE_STRICT_TOOL_VERSION = "1.8.0"
+ANTHROPIC_THREE_STAGE_STRICT_TOOL_VERSION = "1.10.0"
 ANTHROPIC_STAGE_SPECS = {
     "A": (
         ("submit_observations", ("observations",)),
@@ -647,14 +672,24 @@ def _strict_tools_for_sections(
     )
 
 
-def _validated_evidence_refs(evidence_refs: Sequence[int]) -> tuple[int, ...]:
+def _validated_evidence_refs(
+    evidence_refs: Sequence[int], *, allow_subset: bool = False
+) -> tuple[int, ...]:
     refs = tuple(evidence_refs)
     if (
         not refs
         or any(not isinstance(value, int) or isinstance(value, bool) for value in refs)
-        or refs != tuple(range(1, len(refs) + 1))
+        or refs != tuple(sorted(set(refs)))
+        or (not allow_subset and refs != tuple(range(1, len(refs) + 1)))
     ):
-        raise ValueError("Anthropic Evidence aliases must be contiguous integers starting at 1")
+        expectation = (
+            "sorted unique positive integers"
+            if allow_subset
+            else "contiguous integers starting at 1"
+        )
+        raise ValueError(f"Anthropic Evidence aliases must be {expectation}")
+    if refs[0] < 1:
+        raise ValueError("Anthropic Evidence aliases must be positive integers")
     return refs
 
 
@@ -663,9 +698,10 @@ def _validated_metric_refs(metric_refs: Sequence[int]) -> tuple[int, ...]:
     if (
         not refs
         or any(not isinstance(value, int) or isinstance(value, bool) for value in refs)
-        or refs != tuple(range(1, len(refs) + 1))
+        or refs != tuple(sorted(set(refs)))
+        or refs[0] < 1
     ):
-        raise ValueError("Anthropic metric aliases must be contiguous integers starting at 1")
+        raise ValueError("Anthropic metric aliases must be sorted unique positive integers")
     return refs
 
 
@@ -737,7 +773,7 @@ def anthropic_stage_strict_tools(
             raise ValueError(
                 f"Anthropic Stage {stage} requires provider-local Evidence aliases"
             )
-        refs = _validated_evidence_refs(evidence_refs)
+        refs = _validated_evidence_refs(evidence_refs, allow_subset=stage == "B")
         evidence_schema = {"type": "integer", "enum": list(refs)}
     metric_schema: Mapping[str, Any] | None = None
     if stage in {"B", "C"}:

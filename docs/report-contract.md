@@ -72,6 +72,15 @@ release, final-run wall-clock and ingestion filters, the resolved `analysisAsOfU
 post-run max-gap. Supporting sources use the as-of upper bound so the anchor ingestion interval
 does not sever valid post-run linkage. Existing analysis scope JSON and hashes are unchanged.
 
+`runRetention` uses an optional-stage `RunRetentionAnalysisScope`. It records anchor filters, the
+resolved `analysisAsOfUtc`, and an optional long-term threshold/upload-grace pair. The pair is
+either fully specified or absent. Its path uses `run-retention/<environment>__<stage-or-all-stages>__cv-<version>__<hash8>`.
+
+`gaIdentityBridge` and `observedUninstall` use explicit Production telemetry backend and GA
+project/property/stream/date dimensions instead of content version scope. Their paths use
+`<environment>__ga-<property>-<stream>__<hash8>`. Each normal bundle is aggregate-only and has a
+separately controlled restricted raw-identity artifact.
+
 ## Markdown
 
 `report.md` is a human/LLM-readable index of scope, sample, quality, outcome, timing, concentration, causes, damage, threat, state, deterministic statistical signals, caveats, and attached tables. Percentages and seconds display at one decimal place. It must not contain tuning judgments or recommendations.
@@ -147,6 +156,47 @@ Post-run CSVs contain aggregate navigation, shop/offer, commerce, progression, n
 first-action, transition, and quality breakdowns. Player, attempt, run, event, operation,
 presentation, batch, and upload identifiers are forbidden.
 
+## Run Retention contract
+
+`runRetention` uses `analysisVersion: "1.0.0"` and `returnDefinition: "NewAttempt"`.
+
+- The anchor is an as-of-aware canonical final attempt. The as-of row filter is applied before the
+  canonical attempt dedupe ordering.
+- The structural next run is the earliest later gameplay `segmentIndex=1` attempt for the same
+  telemetry profile identity that is not marked as resume. Resume and lifecycle-terminal segments
+  are not returns; a pending next-attempt outcome is still observed engagement.
+- Structural lookup is unbounded. `nextRunDelaySeconds` is next-attempt start minus anchor end.
+- Observed P50/P75/P90/P95 delays are conditional on anchors with an observed next new attempt and
+  are not censor-adjusted population percentiles.
+- No default long-term threshold exists. Threshold classification is enabled only when a positive
+  threshold and nonnegative source-upload grace are both supplied.
+- `thresholdExceededCount` equals returned-after-threshold plus mature no-next anchors.
+  `thresholdResolvedDenominator` equals returned-within, returned-after, and mature no-next anchors;
+  threshold-right-censored anchors are excluded.
+- `thresholdExceededRate` is the exceeded count divided by that resolved denominator. Late returns
+  remain independently visible and are never merged into mature no-next.
+- The source has no global complete-through authority. Grace delays threshold maturity but does not
+  prove that later offline uploads cannot arrive.
+- This is run-based observation, not app foreground, session return, uninstall, or true churn.
+  Reinstall or profile reset can break identity continuity.
+
+Run Retention CSVs contain overall, outcome, stage, observed-latency, censoring, threshold, and
+quality aggregates. Raw player, attempt, run, upload, or event identifiers are forbidden.
+
+## Observed Uninstall contract
+
+`observedUninstall` uses `analysisVersion: "1.0.0"`. It records GA `app_remove` events and selects
+the latest unambiguous R3-B mapping at or before each event timestamp. A future mapping is never
+used, same-time multi-profile mappings are ambiguous, and an ambiguous latest point never falls
+back to an older clean point. The exported GA user identity is not attribution authority.
+
+The normal tables contain source finalization, attribution status/reason, and mapping-age
+aggregates. Raw app-instance, player, bridge, exported user, and lifecycle occurrence identifiers
+are forbidden. Restricted normalized events preserve the canonical Profile only for mapped rows.
+No staleness threshold, current-state assertion, churn meaning, causal meaning, or decision
+authority is added. The full contract is documented in
+[r3-d-observed-uninstall-contract.md](r3-d-observed-uninstall-contract.md).
+
 ## ContentVersion Comparison contract
 
 `contentVersionCompare` uses `analysisVersion: "1.1.0"` and keeps the baseline/candidate order
@@ -182,6 +232,7 @@ forbidden. The generator emits only descriptive direction and never assigns a tu
 ## Analysis Brief consumer
 
 Phase C-1 accepts the analysis-type version matrix, including historical Post-Run/Comparison
-`1.0.0` and current `1.1.0`, without querying BigQuery. Historical feedback remains readable but
+`1.0.0`, current `1.1.0`, Run Retention `1.0.0`, GA Identity Bridge `1.0.0`, and Observed
+Uninstall `1.0.0`, without querying BigQuery. Historical feedback remains readable but
 is excluded from new evidence selection. Its Evidence ID, source-integrity, selection, and four-file output contract is documented in
 [analysis-brief-contract.md](analysis-brief-contract.md).

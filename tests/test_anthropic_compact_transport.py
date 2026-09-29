@@ -82,7 +82,7 @@ from defence_project_analytics.llm_analysis.validator import (
     validate_stage_c,
 )
 from defence_project_analytics.reporting.renderers import to_external
-from defence_project_analytics.metric_registry import target_metric_keys
+from defence_project_analytics.metric_registry import monitor_metric_keys, target_metric_keys
 from defence_project_analytics.llm_analysis.warning_authority import (
     collect_allowed_warning_codes,
 )
@@ -117,7 +117,7 @@ def _package_with_entity_evidence(package):
     evidence = deepcopy(dict(package.source.evidence))
     items = deepcopy(list(evidence["evidenceItems"]))
     items[0]["entityType"] = "weaponFamily"
-    items[0]["entityKey"] = "mortar.basic"
+    items[0]["entityKey"] = "mortar2.basic"
     evidence["evidenceItems"] = items
     source = replace(
         package.source,
@@ -227,6 +227,35 @@ def test_empty_warning_universe_has_host_controlled_empty_wire_contract() -> Non
     # table remains the fail-closed host authority for membership.
     with pytest.raises(AnthropicWarningAliasError):
         aliases.canonical_code(1)
+
+
+def test_stage_a_wire_schema_carries_numeric_free_prose_guidance() -> None:
+    tools = anthropic_stage_strict_tools(
+        "A", evidence_refs=(1,), warning_refs=(1,)
+    )
+    interpretation = next(
+        tool for tool in tools if tool["name"] == "submit_interpretations"
+    )["input_schema"]["properties"]["interpretations"]["items"]["properties"]
+    statement = interpretation["statement"]
+    assert "pattern" not in statement
+    assert "Numeric-free qualitative prose" in statement["description"]
+    assert "pattern=^[^0-9]*$" in statement["description"]
+    evidence_refs = interpretation["evidenceRefs"]
+    assert "maxItems" not in evidence_refs and "uniqueItems" not in evidence_refs
+    assert "maxItems=20" in evidence_refs["description"]
+    assert "uniqueItems=True" in evidence_refs["description"]
+
+
+def test_stage_b_wire_schema_marks_change_description_as_prospective() -> None:
+    tools = anthropic_stage_strict_tools(
+        "B", evidence_refs=(1,), metric_refs=(1,), warning_refs=(1,),
+        evidence_gap_refs=(),
+    )
+    candidate = next(
+        tool for tool in tools if tool["name"] == "submit_change_candidates"
+    )["input_schema"]["properties"]["changeCandidates"]["items"]["properties"]
+    assert "proposed action to test" in candidate["changeDescription"]["description"]
+    assert "certainly improve" in candidate["changeDescription"]["description"]
 
 
 def test_warning_refs_round_trip_and_strict_schema_exclude_canonical_strings(
@@ -343,12 +372,17 @@ def test_provider_integer_alias_rejects_invalid_mapping_and_primitives() -> None
         aliases.provider_ref("EV-missing")
     with pytest.raises(ValueError, match="contiguous"):
         anthropic_stage_strict_tools("A", evidence_refs=(1, 3), warning_refs=(1,))
+    subset_tools = anthropic_stage_strict_tools(
+        "B", evidence_refs=(1, 3), metric_refs=(1,), warning_refs=(1,),
+        evidence_gap_refs=(),
+    )
+    assert len(subset_tools) == 2
 
 
 def test_metric_alias_is_registry_derived_bijective_and_exact() -> None:
     first = build_metric_alias_table()
     second = build_metric_alias_table()
-    expected = tuple(sorted(target_metric_keys()))
+    expected = tuple(sorted(target_metric_keys() | monitor_metric_keys()))
 
     assert first.canonical_metric_keys == expected
     assert first.provider_refs == tuple(range(1, len(expected) + 1))
@@ -650,6 +684,7 @@ def test_stage_b_schema_makes_bookkeeping_ids_impossible() -> None:
     expected_domains = sorted({
         "stageDifficulty", "weaponPerformance", "upgradeChoice",
         "progressionNextRun", "postRunBehavior", "contentVersionCompare",
+            "retentionEvidence",
         "crossDomain",
     })
     assert changes["domain"]["enum"] == expected_domains
@@ -701,6 +736,7 @@ def test_stage_c_summary_uses_exact_refs_and_round_trips(tmp_path: Path) -> None
     assert plan["analysesToRerun"]["items"]["enum"] == sorted({
         "stageDifficulty", "weaponPerformance", "upgradeChoice",
         "progressionNextRun", "postRunBehavior", "contentVersionCompare",
+            "retentionEvidence",
     })
 
 
@@ -1571,7 +1607,7 @@ def test_evidence_entity_uses_structured_identity_and_preserves_context_bool(
     target.update({
         "targetType": "EvidenceEntity",
         "targetEntityType": "weaponFamily",
-        "targetEntityKey": "mortar.basic",
+        "targetEntityKey": "mortar2.basic",
         "targetMetricRef": 0,
         "conceptualTargetDescription": "관측 비율은 20%다.",
         "structuredTargetRequiresGameDesignContext": requires_context,
@@ -1588,7 +1624,7 @@ def test_evidence_entity_uses_structured_identity_and_preserves_context_bool(
         "targetType": "EvidenceEntity",
         "domain": "stageDifficulty",
         "entityType": "weaponFamily",
-        "entityKey": "mortar.basic",
+        "entityKey": "mortar2.basic",
         "metricFamily": None,
         "metric": None,
         "description": None,
@@ -1815,7 +1851,7 @@ def test_three_stage_context_keeps_evidence_authority_and_merges_exactly(
         "observations", "interpretations", "evidenceGaps", "hypotheses",
         "changeCandidates",
     }
-    assert len(context_c["metricCatalog"]) == 88
+    assert len(context_c["metricCatalog"]) == 94
     assert context_c["metricCatalog"][0]["metricRef"] == 1
     assert "::" in context_c["metricCatalog"][0]["key"]
     assert context_c["metricCatalog"] == sorted(

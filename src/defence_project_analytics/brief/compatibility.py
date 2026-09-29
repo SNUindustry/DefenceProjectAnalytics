@@ -36,6 +36,7 @@ WARNING_PRIORITY = (
 LIMITING_WARNING_CODES = frozenset(WARNING_PRIORITY) - {
     "SOURCE_SNAPSHOT_MODE_DIFFERENCE"
 }
+SOURCE_DIMENSION_ONLY_DOMAINS = frozenset({"gaIdentityBridge", "observedUninstall"})
 
 
 def _common_scope(scope: Mapping[str, Any]) -> tuple[Any, ...]:
@@ -65,12 +66,22 @@ def validate_mode_and_scope(
         raise AnalysisBriefError(
             "singleVersion mode accepts only B-1 through B-5 source bundles"
         )
-    expected = _common_scope(sources[0].metadata["scope"])
-    for source in sources[1:]:
+    scoped_sources = tuple(
+        source for source in sources
+        if source.analysis_type not in SOURCE_DIMENSION_ONLY_DOMAINS
+    )
+    expected = _common_scope(
+        (scoped_sources or sources)[0].metadata["scope"]
+    )
+    for source in scoped_sources[1:]:
         if _common_scope(source.metadata["scope"]) != expected:
             raise AnalysisBriefError(
                 "Single-version source environment/contentVersion/common filters do not match"
             )
+    expected_environment = expected[0]
+    for source in sources:
+        if source.metadata["scope"].get("environment") != expected_environment:
+            raise AnalysisBriefError("Single-version source environments do not match")
     stages = {
         item.metadata["scope"].get("stageKey")
         for item in sources
@@ -141,7 +152,14 @@ def initial_brief_warnings(
     warnings = list(snapshot_warnings)
     if request.mode == SINGLE_MODE:
         present = {item.domain for item in sources}
-        missing = tuple(domain for domain in DOMAIN_ORDER if domain not in present)
+        missing = tuple(
+            domain for domain in DOMAIN_ORDER
+            if domain not in {
+                "observedAppReturn", "gaIdentityBridge", "observedUninstall",
+                "retentionEvidence",
+            }
+            and domain not in present
+        )
         if missing:
             warnings.append(BriefWarning(
                 "PARTIAL_DOMAIN_COVERAGE",
@@ -200,7 +218,18 @@ def build_scope(
         stage = scope.get("stageKey")
         domains = tuple(scope.get("domains") or ())
     else:
-        content_version = int(scope["contentVersion"])
+        primary = next(
+            (
+                item for item in sources
+                if item.analysis_type not in SOURCE_DIMENSION_ONLY_DOMAINS
+            ),
+            sources[0],
+        )
+        scope = primary.metadata["scope"]
+        content_version = (
+            None if primary.analysis_type in SOURCE_DIMENSION_ONLY_DOMAINS
+            else int(scope["contentVersion"])
+        )
         baseline = candidate = None
         stages = [
             item.metadata["scope"].get("stageKey")

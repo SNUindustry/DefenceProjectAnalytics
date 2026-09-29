@@ -28,11 +28,11 @@ from defence_project_analytics.llm_analysis.models import (
 )
 from defence_project_analytics.reporting.renderers import to_external
 from defence_project_analytics.brief.registry import HISTORICAL_ONLY_WARNING_CODES
-from defence_project_analytics.metric_registry import is_decision_evidence_item
+from defence_project_analytics.metric_registry import EvidenceUse, is_evidence_item_eligible
 from defence_project_analytics.metric_registry import METRIC_REGISTRY_VERSION
 
 
-def _decision_brief(value: Mapping[str, Any]) -> Mapping[str, Any]:
+def _provider_brief(value: Mapping[str, Any]) -> Mapping[str, Any]:
     brief = deepcopy(dict(value))
     critical = brief.get("criticalWarnings")
     if isinstance(critical, list):
@@ -50,25 +50,26 @@ def _decision_brief(value: Mapping[str, Any]) -> Mapping[str, Any]:
     return brief
 
 
-def _decision_evidence_document(value: Mapping[str, Any]) -> Mapping[str, Any]:
+def _factual_evidence_document(value: Mapping[str, Any]) -> Mapping[str, Any]:
     evidence = deepcopy(dict(value))
     items = evidence.get("evidenceItems")
     if isinstance(items, list):
         evidence["evidenceItems"] = [
             item for item in items
-            if isinstance(item, Mapping) and is_decision_evidence_item(item)
+            if isinstance(item, Mapping)
+            and is_evidence_item_eligible(item, EvidenceUse.FACTUAL_REFERENCE)
         ]
     return evidence
 
 
-def _decision_source_payload(source: Any) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
-    evidence = _decision_evidence_document(source.evidence)
+def _factual_source_payload(source: Any) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
+    evidence = _factual_evidence_document(source.evidence)
     eligible_ids = {
         str(item.get("evidenceId"))
         for item in evidence.get("evidenceItems", ())
         if isinstance(item, Mapping) and item.get("evidenceId")
     }
-    brief = dict(_decision_brief(source.brief))
+    brief = dict(_provider_brief(source.brief))
     priority = brief.get("priorityEvidenceIds")
     if isinstance(priority, list):
         brief["priorityEvidenceIds"] = [item for item in priority if item in eligible_ids]
@@ -83,7 +84,7 @@ def _decision_source_payload(source: Any) -> tuple[Mapping[str, Any], Mapping[st
 
 
 def _request_material(request: AnalysisPromptRequest, source: Any) -> Mapping[str, Any]:
-    brief, evidence = _decision_source_payload(source)
+    brief, evidence = _factual_source_payload(source)
     return {
         "analysisVersion": ANALYSIS_VERSION,
         "analysisPolicyVersion": ANALYSIS_POLICY_VERSION,
@@ -208,6 +209,20 @@ def _render_prompt(material: Mapping[str, Any]) -> str:
         "NotIdentifiedInSuppliedBrief means only that no contradiction was identified in this selected brief. "
         "It never proves contradictory evidence does not exist. "
         "All factual observations must cite supplied Evidence IDs. "
+        "Observation, interpretation, and evidence-gap citations may use factual evidence. "
+        "Hypothesis and change-candidate support requires decision-eligible evidence; "
+        "a factual citation alone never authorizes a change. Targets, expected observables, "
+        "validation metrics, guardrails, and rollback metrics require target authority. "
+        "R4 retentionEvidence is factual observation authority only. ObservedUninstall is not "
+        "permanent churn, NoObservedReturn is bounded by the recorded source cut and horizon, "
+        "and RightCensored is not a non-return outcome. R4 evidence cannot support a hypothesis "
+        "or change candidate and cannot be a target, guardrail, or rollback metric. An R4 metric "
+        "may appear only in validation metricsToWatch as MonitorOnly when its static comparison "
+        "capability and supplied runtime comparison authority are both Allowed. Missing or Denied "
+        "runtime authority forbids that use. Preserve the supplied horizon, denominator, maturity, "
+        "source-finalization, and source-cut limits in any interpretation. "
+        "A later observed return does not erase an earlier ObservedUninstall event, and "
+        "SameObservedTime does not establish either event order. "
         "Evidence gaps may discuss a possible causal relationship only as an unresolved question, "
         "uncertainty, or validation need; they must not state it as an established fact. "
         "The comparison direction is candidate minus baseline. "
@@ -311,7 +326,7 @@ def load_analysis_prompt_package(
     expected_artifacts = request_payload.get("sourceArtifacts")
     if to_external(source.artifacts) != expected_artifacts:
         raise SourceBriefMutationError("SOURCE_BRIEF_MUTATED: source artifact bytes changed")
-    expected_brief, expected_evidence = _decision_source_payload(source)
+    expected_brief, expected_evidence = _factual_source_payload(source)
     if expected_brief != request_payload.get("brief") or expected_evidence != request_payload.get("evidence"):
         raise SourceBriefMutationError("SOURCE_BRIEF_MUTATED: semantic source payload changed")
     request = AnalysisPromptRequest(

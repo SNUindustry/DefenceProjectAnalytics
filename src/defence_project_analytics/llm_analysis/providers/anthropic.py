@@ -42,6 +42,7 @@ from defence_project_analytics.llm_analysis.anthropic_transport import (
     build_anthropic_stage_prompt_parts,
     collect_anthropic_stage_tool_response,
     compact_payload_digest,
+    decision_evidence_refs,
     merge_anthropic_stage_sections,
 )
 from defence_project_analytics.llm_analysis.loader import verify_source_brief_unchanged
@@ -80,6 +81,7 @@ from defence_project_analytics.llm_analysis.validator import (
     validate_stage_c,
 )
 from defence_project_analytics.llm_analysis.warning_authority import warning_authority_digest
+from defence_project_analytics.metric_registry import target_metric_keys
 
 
 DEFAULT_ANTHROPIC_MODEL = "claude-opus-5"
@@ -510,13 +512,31 @@ class AnthropicAnalysisProvider:
             validation_plan_refs=validation_plan_refs,
             output_refs=output_refs,
         )
+        stage_metric_refs = (
+            tuple(
+                ref for ref, key in zip(
+                    metric_aliases.provider_refs,
+                    metric_aliases.canonical_metric_keys,
+                    strict=True,
+                )
+                if stage == "C" or key in target_metric_keys()
+            )
+            if stage in {"B", "C"} else None
+        )
         tools = anthropic_stage_strict_tools(
             stage,
             evidence_refs=(
-                evidence_aliases.provider_refs if stage in {"A", "B"} else None
+                evidence_aliases.provider_refs
+                if stage == "A"
+                else (
+                    decision_evidence_refs(prompt, evidence_aliases)
+                    or evidence_aliases.provider_refs
+                )
+                if stage == "B"
+                else None
             ),
             metric_refs=(
-                metric_aliases.provider_refs if stage in {"B", "C"} else None
+                stage_metric_refs
             ),
             warning_refs=(
                 warning_aliases.provider_refs if stage in {"A", "B"} else None
@@ -610,7 +630,8 @@ class AnthropicAnalysisProvider:
                 )
             stage_metadata["canonicalEvidenceIdLeakageCheckPassed"] = True
             assert_provider_metric_output_schema_is_aliased(
-                prepared.tools, metric_aliases, stage=stage
+                prepared.tools, metric_aliases, stage=stage,
+                provider_refs=stage_metric_refs,
             )
             stage_metadata["metricAliasOutputSchemaCheckPassed"] = True
             assert_provider_warning_output_schema_is_aliased(

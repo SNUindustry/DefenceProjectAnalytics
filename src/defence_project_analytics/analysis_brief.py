@@ -49,7 +49,12 @@ def _source_order(source: Any) -> tuple[int, str]:
         "upgradeChoice": 2,
         "progressionNextRun": 3,
         "postRunBehavior": 4,
-        "contentVersionCompare": 5,
+        "runRetention": 5,
+        "observedAppReturn": 6,
+        "gaIdentityBridge": 7,
+        "observedUninstall": 8,
+        "retentionEvidence": 9,
+        "contentVersionCompare": 10,
     }
     return order.get(source.analysis_type, len(order)), source.analysis_type
 

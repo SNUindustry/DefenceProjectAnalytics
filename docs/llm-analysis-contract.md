@@ -1,8 +1,14 @@
 # Evidence-Grounded LLM Analysis Contract 1.0.0
 
+R4 `retentionEvidence` can be cited in factual Stage A output. It cannot support
+hypotheses, change candidates, targets, guardrails, or rollback indicators. A
+comparison-capable R4 metric may appear in `metricsToWatch` as MonitorOnly only
+when its C-1 runtime comparison authority is explicitly `Allowed`; missing or
+denied authority fails closed.
+
 The canonical analysis and response shape remain version `1.0.0`. The semantic validation policy
-and prompt template are version `1.3.0`. Analysis request bundles record these versions plus
-metric registry version `1.1.0` and are
+is version `1.6.0` and the prompt template is version `1.5.0`. Analysis request bundles record these versions plus
+metric registry version `1.2.0` and are
 accepted only when they exactly match the current implementation; older request bundles are not
 silently revalidated under a newer semantic policy.
 
@@ -20,20 +26,47 @@ no OpenAI-compatible layer or other provider adapter is used.
 ## Input and integrity
 
 The source bundle must contain `brief.md`, `brief.json`, `evidence.json`, and `manifest.json` with
-Analysis Brief version `1.0.0` and selection-policy version `1.0.0` or `1.1.0`. C-2 recomputes the semantic digest over
+Analysis Brief version `1.0.0` and selection-policy version `1.0.0`, `1.1.0`, or `1.2.0`. C-2 recomputes the semantic digest over
 `brief.json` and `evidence.json`, validates the scope hash and every canonical Evidence ID, and
 records all four current artifact hashes in the prompt request. The hashes are checked again before
 response validation and atomic output. A change after prompt generation fails with
 `SOURCE_BRIEF_MUTATED`.
 
+The final analysis manifest records the C-1 portable path and the validated aggregate source bundle
+identities, portable paths, and digests. It does not copy raw telemetry identifiers or source rows.
+
 `brief.md` is human-readable but is not duplicated into the structured prompt context. The prompt
-uses `brief.json` and all selected `evidence.json` items. Evidence is never silently truncated by
-C-2; an oversized context fails and must be regenerated in C-1 with a smaller selection budget.
+uses `brief.json` and every selected factual-eligible `evidence.json` item. Historical-only items
+are excluded by their registered lifecycle; active factual-only B-7 and B-8 items are retained.
+Evidence is never silently truncated by C-2; an oversized context fails and must be regenerated in
+C-1 with a smaller selection budget.
 
 Feedback metric identities have lifecycle `HistoricalOnly`: they remain parseable for finalized
 artifact rendering, but current manual, scripted, and Anthropic execution rejects them as support,
 counter-evidence, targets, or validation-plan metrics. Provider projections omit those evidence
 items and use only the active decision/target metric catalog.
+
+## Evidence-use authority
+
+The consumer distinguishes three uses while preserving the metric registry's eligibility flags:
+
+- `FACTUAL_REFERENCE` requires `evidenceEligible`. Observations, interpretations,
+  interpretation limitations, and Evidence Gap context may cite B-7 `NewAttempt` and B-8
+  `ObservedAppReturn` facts.
+- `DECISION_SUPPORT` requires `decisionEligible`. Hypothesis support/counter-evidence and
+  ChangeCandidate support/counter-evidence cannot cite factual-only B-7/B-8 metrics. A factual
+  observation in validated Stage A context does not grant decision authority in Stage B.
+- `TARGET_GUARDRAIL` requires target and decision eligibility. Change targets, expected
+  observables, validation metrics, guardrails, and rollback indicators cannot use B-7/B-8 metrics.
+
+The provider-neutral prompt carries all factual references. The Anthropic alias namespace includes
+them without changing canonical IDs; Stage B also receives the exact subset of alias refs permitted
+for decision support. The host validator enforces the same field-level authority regardless of
+provider. An all-factual brief may return observations and gaps with empty hypothesis, candidate,
+and validation-plan sections. Prompt template `1.4.0` and validation policy `1.4.0` introduced this
+authority split; the canonical analysis output and response shape remain `1.0.0`. Policy `1.5.0` also distinguishes
+structured target identities from prose: digits may occur in source-validated entity and metric
+keys, while freeform claims remain numeric-free.
 
 ## Reasoning layers
 
@@ -147,8 +180,9 @@ The Anthropic adapter uses the official Python SDK and its environment-based
 serialized into a manifest, or included in an exception. The provider uses `claude-opus-5` by
 default and accepts an explicit model override.
 
-Final C-2A semantic and quality acceptance uses exactly one explicit `claude-opus-5`
-production-path run after all local gates pass. Another model's semantic variance is diagnostic for
+An optional C-2A live semantic acceptance uses one explicit `claude-opus-5`
+production-path run after all local gates pass; deterministic structural acceptance does not
+require an API call. Another model's semantic variance is diagnostic for
 that model and does not relax the canonical response contract or validator. Final acceptance does
 not perform semantic regeneration, repair, model fallback, or automatic resume. The actual selected
 model continues to be recorded in provider metadata.
@@ -157,7 +191,9 @@ The provider preserves the provider-independent/manual prompt package, then buil
 Anthropic-only compact projection for the actual API request. The compact payload factors repeated
 bundle/artifact provenance and `(status, warningCodes)` sets into deterministic dictionaries,
 removes only reconstructible canonical-identity duplication, and retains every evidence row and
-source row key. For Anthropic Stage A/B only, canonical Evidence IDs are replaced by a deterministic
+source row key. Single-source briefs factor one source identity; multi-source single-version briefs
+use exact per-row source references that reconstruct each source identity without loss. For Anthropic
+Stage A/B only, canonical Evidence IDs are replaced by a deterministic
 1-based integer alias table. The compact payload and prior-stage projections must inverse to the
 exact canonical objects by deep equality. The canonical C-1 artifacts remain immutable and
 authoritative. The actual Anthropic request has separate secret-free request, compact-payload, and
@@ -170,10 +206,15 @@ candidates. Stage C requests validation plans and the executive summary. Every t
 has zero optional properties, `anyOf`, and nullable fields. Null canonical values use the existing
 explicit flat transport sentinels.
 
-Stage A and B each receive the complete compact C-1 Evidence catalog using the same integer alias
-namespace. Each Evidence-reference field uses an exact request-specific integer enum; strings,
+Stage A receives the complete compact C-1 factual Evidence catalog. Stage B reuses the same integer
+alias namespace but receives only the exact decision-eligible raw Evidence subset; validated Stage A
+observations and interpretations preserve factual-only context without granting it decision authority.
+Each Evidence-reference field uses an exact request-specific integer enum; strings,
 range coercion, fuzzy matching, and out-of-range aliases are invalid. Validated Stage A output is
 reprojected before Stage B, so Anthropic never sees both integer aliases and canonical Evidence IDs.
+Stage B context lists `decisionEvidenceRefs` separately; only those refs may support a hypothesis
+or change candidate, and the strict-tool schema admits exactly that subset. The host validator
+rechecks the same boundary after canonical alias restoration.
 Stage C receives no raw Evidence rows, Evidence references, or artifact/quality dictionaries; it
 receives the remaining validated A/B context, separate host assessments, brief constraints, and the
 exact case-sensitive metric registry through a second deterministic request-local integer alias

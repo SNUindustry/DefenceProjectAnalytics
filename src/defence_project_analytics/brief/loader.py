@@ -31,6 +31,11 @@ SUPPORTED_ANALYSIS_VERSIONS = {
     "upgradeChoice": frozenset({"1.0.0"}),
     "progressionNextRun": frozenset({"1.0.0"}),
     "postRunBehavior": frozenset({"1.0.0", "1.1.0"}),
+    "runRetention": frozenset({"1.0.0"}),
+    "observedAppReturn": frozenset({"1.0.0"}),
+    "gaIdentityBridge": frozenset({"1.0.0"}),
+    "observedUninstall": frozenset({"1.0.0"}),
+    "retentionEvidence": frozenset({"1.0.0"}),
     "contentVersionCompare": frozenset({"1.0.0", "1.1.0"}),
 }
 FORBIDDEN_RAW_IDENTIFIERS = frozenset(
@@ -45,6 +50,15 @@ FORBIDDEN_RAW_IDENTIFIERS = frozenset(
         "batchId",
         "uploadId",
         "instanceId",
+        "appProcessSessionId",
+        "lifecycleOccurrenceId",
+        "retentionBridgeId",
+        "user_id",
+        "user_pseudo_id",
+        "userPseudoId",
+        "latestForegroundOccurrenceId",
+        "canonicalProfileId",
+        "episodeId",
     }
 )
 
@@ -206,7 +220,7 @@ def load_source_bundle(
     for path in (root / "metadata.json", root / "metrics.json", report):
         item = _artifact(path, root)
         artifacts[item.relative_path] = item
-    table_root = root / "tables"
+    table_root = root if analysis_type == "retentionEvidence" else root / "tables"
     for filename, required_columns in required_tables(
         analysis_type, str(analysis_version)
     ).items():
@@ -233,6 +247,19 @@ def load_source_bundle(
                 raise AnalysisBriefError(f"Non-finite value in {filename}.{column}")
         tables[filename] = frame
         item = _artifact(path, root)
+        artifacts[item.relative_path] = item
+
+    if analysis_type in {"observedAppReturn", "retentionEvidence"}:
+        manifest = _load_json(root / "manifest.json")
+        expected_files = {key: artifact.sha256 for key, artifact in artifacts.items()}
+        if manifest.get("analysisType") != analysis_type or (
+            manifest.get("analysisVersion") != analysis_version
+            or manifest.get("files") != expected_files
+        ):
+            raise AnalysisBriefError(
+                f"{analysis_type} manifest digest or identity mismatch"
+            )
+        item = _artifact(root / "manifest.json", root)
         artifacts[item.relative_path] = item
 
     scope = metadata["scope"]

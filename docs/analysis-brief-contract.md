@@ -1,14 +1,22 @@
 # Analysis Brief Contract 1.0.0
 
+R4-C adds `retentionEvidence` as an optional single-version domain. Its 11
+registered summary metrics are factual evidence only; the per-item `authority`
+object preserves runtime comparison resolution and all R4 semantic bounds. See
+`docs/r4-c-retention-evidence-integration.md`.
+
 Phase C-1 is a local-only compiler for existing aggregate analytics reports. It accepts explicit
 generated bundle paths and never invokes BigQuery, ADC, a source analyzer, a raw bucket, or an LLM.
-Selection policy `1.1.0` separates metric readability from evidence eligibility. Feedback metrics
+Selection policy `1.2.0` separates metric readability from comparison, evidence, decision, and
+target eligibility. Feedback metrics
 in historical Post-Run or Comparison bundles are recognized and hashed with their source bundle,
 but are never emitted as new C-1 Evidence or provider-facing feedback-only warnings.
 
 ## Input modes
 
-- `singleVersion` accepts one unique bundle per available B-1 through B-5 analysis. Environment,
+- `singleVersion` accepts one unique bundle per available Stage, Weapon, Upgrade, Progression,
+  Post-Run, Run Retention, Observed App Return, GA Identity Bridge, and Observed Uninstall
+  analysis. Environment,
   contentVersion, common exact filters, and stage-dependent stage scopes must be compatible.
 - `contentVersionCompare` accepts exactly one B-6 bundle and preserves its baseline/candidate,
   delta, status, warning, and observed-only semantics without recomputation.
@@ -33,7 +41,8 @@ digest, and stable aggregate row key. Absolute paths and raw telemetry identifie
 
 - Stage Difficulty records `uploadedAtUtcUpperBound`, or `unboundedIngestionAtGeneration` when no
   explicit cutoff exists.
-- Weapon, Upgrade, Progression, and Post-Run record `analysisAsOfUtcParameter`.
+- Weapon, Upgrade, Progression, Post-Run, Run Retention, GA Identity Bridge, and Observed
+  Uninstall record `analysisAsOfUtcParameter`.
 - A guarantee-mode difference is reported independently and does not alone make a brief Limited.
 - An explicit cutoff difference over 60 seconds or a bounded/unbounded source mixture is limiting.
 - None of these modes represents a BigQuery historical system-time snapshot.
@@ -73,6 +82,13 @@ C-1 preserves zero versus missing, warnings, coverage, comparability, and observ
 not calculate cross-domain relationships, causal effects, value judgments, or balance actions. A
 later C-2 consumer should attach an Evidence ID to every data-backed factual claim and keep
 observations, interpretations, hypotheses, and proposed actions separate.
+
+Run Retention contributes factual sample, observed-next, conditional latency, censoring, and
+optional threshold evidence. B-8 contributes factual observed lifecycle-return evidence. R3-B
+contributes aggregate bridge coverage and quality, while R3-D contributes aggregate observed
+`app_remove` and temporal-attribution facts. All four remain excluded from comparison, decision
+support, and target/guardrail authority before R4. C-2 provider context retains their factual evidence for observations, interpretations, and gaps;
+its validator bars those metrics from hypotheses, change support, targets, and validation metrics.
 
 Phase C-2 consumes this contract through the provider-neutral workflow documented in
 [`llm-analysis-contract.md`](llm-analysis-contract.md). C-2 must preserve C-1 evidence values,

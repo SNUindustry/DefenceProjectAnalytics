@@ -238,24 +238,28 @@ def test_anthropic_output_still_passes_existing_validator_and_records_usage(
     )
     manifest = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["providerMode"] == "anthropicApi"
+    assert manifest["cloudAccessPerformed"] is True
     assert manifest["providerName"] == "anthropic"
     assert manifest["modelName"] == "claude-opus-5"
+    assert manifest["sourceBriefPortablePath"] is not None
+    assert manifest["sourceBundles"]
+    assert all(len(item["bundleDigest"]) == 64 for item in manifest["sourceBundles"])
     assert manifest["structuredOutputsUsed"] is True
     assert manifest["anthropicStrictToolsUsed"] is True
     assert manifest["structuredOutputSchemaMode"] == "threeStageStrictToolsV1"
-    assert manifest["anthropicInputProjectionVersion"] == "1.0.0"
-    assert manifest["anthropicEvidenceAliasVersion"] == "1.0.0"
+    assert manifest["anthropicInputProjectionVersion"] == "1.2.0"
+    assert manifest["anthropicEvidenceAliasVersion"] == "1.1.0"
     assert manifest["evidenceAliasCount"] == len(package.source.evidence_by_id)
     assert len(manifest["evidenceAliasDigest"]) == 64
     assert manifest["anthropicMetricAliasVersion"] == "1.0.0"
-    assert manifest["metricAliasCount"] == 88
+    assert manifest["metricAliasCount"] == 94
     assert len(manifest["metricAliasDigest"]) == 64
-    assert manifest["anthropicStrictToolTransportVersion"] == "1.8.0"
-    assert manifest["anthropicThreeStageStrictToolTransportVersion"] == "1.8.0"
-    assert manifest["anthropicThreeStageStrictToolVersion"] == "1.8.0"
-    assert manifest["anthropicStageContextVersion"] == "1.3.0"
+    assert manifest["anthropicStrictToolTransportVersion"] == "1.10.0"
+    assert manifest["anthropicThreeStageStrictToolTransportVersion"] == "1.10.0"
+    assert manifest["anthropicThreeStageStrictToolVersion"] == "1.10.0"
+    assert manifest["anthropicStageContextVersion"] == "1.4.0"
     assert manifest["anthropicStageContextVersions"] == {
-        "A": "1.3.0", "B": "1.4.0", "C": "1.5.0"
+        "A": "1.4.0", "B": "1.6.0", "C": "1.7.0"
     }
     assert manifest["anthropicOutputRefVersion"] == "1.0.0"
     assert manifest["anthropicStageBIdentityVersion"] == "1.0.0"

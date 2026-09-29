@@ -9,7 +9,7 @@ from typing import Any, Mapping
 
 from defence_project_analytics.llm_analysis.models import AnalysisPromptPackage
 from defence_project_analytics.brief.registry import HISTORICAL_ONLY_WARNING_CODES
-from defence_project_analytics.metric_registry import is_decision_evidence_item
+from defence_project_analytics.metric_registry import EvidenceUse, is_evidence_item_eligible
 from defence_project_analytics.reporting.renderers import to_external
 
 
@@ -51,7 +51,7 @@ def model_visible_brief(package: AnalysisPromptPackage) -> Mapping[str, Any]:
     eligible_ids = {
         evidence_id
         for evidence_id, item in package.source.evidence_by_id.items()
-        if is_decision_evidence_item(item)
+        if is_evidence_item_eligible(item, EvidenceUse.FACTUAL_REFERENCE)
     }
     priority = visible.get("priorityEvidenceIds")
     if isinstance(priority, list):
@@ -99,7 +99,7 @@ def collect_allowed_warning_codes(package: AnalysisPromptPackage) -> tuple[str, 
 
     codes = _warning_codes_from_visible_brief(model_visible_brief(package))
     for item in package.source.evidence_by_id.values():
-        if not is_decision_evidence_item(item):
+        if not is_evidence_item_eligible(item, EvidenceUse.FACTUAL_REFERENCE):
             continue
         warning_codes = item.get("warningCodes")
         if isinstance(warning_codes, list):

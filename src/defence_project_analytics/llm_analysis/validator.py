@@ -61,8 +61,14 @@ from defence_project_analytics.llm_analysis.warning_authority import (
     collect_allowed_warning_codes,
 )
 from defence_project_analytics.metric_registry import (
+    EvidenceUse,
+    MetricLifecycle,
     decision_metric_keys,
     is_decision_evidence_item,
+    is_evidence_item_eligible,
+    known_metric_keys,
+    metric_lifecycle,
+    monitor_metric_keys,
     target_metric_keys,
 )
 from defence_project_analytics.reporting.renderers import to_external
@@ -73,6 +79,10 @@ _ID_PATTERNS = {
     for kind, prefix in OUTPUT_ID_PREFIXES.items()
 }
 _ACTIONABLE = frozenset({"Experiment", "BalanceChange", "UXChange", "TelemetryChange"})
+_R4_SEMANTIC_OVERREACH = re.compile(
+    r"\b(?:churn(?:ed)?|retained|uninstall\s+rate|permanent(?:ly)?\s+(?:lost|gone))\b",
+    re.IGNORECASE,
+)
 
 
 class _Validator:
@@ -82,8 +92,27 @@ class _Validator:
         self.evidence = package.source.evidence_by_id
         self.brief_status = str(package.source.brief["overallStatus"])
         self.warning_codes = set(collect_allowed_warning_codes(package))
-        self.metric_keys = set(decision_metric_keys())
+        self.metric_keys = set(decision_metric_keys() & target_metric_keys())
         self.target_metric_keys = set(target_metric_keys())
+        self.monitor_metric_keys = set(self.metric_keys)
+        for key in monitor_metric_keys():
+            matching = [
+                item for item in self.evidence.values()
+                if (
+                    str(item.get("domain") or ""),
+                    str(item.get("metricFamily") or ""),
+                    str(item.get("metric") or ""),
+                ) == key
+            ]
+            if matching and all(
+                isinstance(item.get("authority"), Mapping)
+                and item["authority"].get("comparisonEligible") is True
+                and item["authority"].get("monitorOnlyEligible") is True
+                and isinstance(item["authority"].get("runtimeComparison"), Mapping)
+                and item["authority"]["runtimeComparison"].get("decision") == "Allowed"
+                for item in matching
+            ):
+                self.monitor_metric_keys.add(key)
         self.decision_evidence_ids = {
             evidence_id
             for evidence_id, item in self.evidence.items()
@@ -92,6 +121,21 @@ class _Validator:
 
     def issue(self, code: str, path: str, message: str) -> None:
         self.issues.append({"code": code, "path": path, "message": message})
+
+    def check_r4_wording(
+        self, text: str, evidence_ids: Iterable[str], path: str
+    ) -> None:
+        if any(
+            self.evidence[item].get("domain") == "retentionEvidence"
+            for item in evidence_ids if item in self.evidence
+        ):
+            match = _R4_SEMANTIC_OVERREACH.search(text)
+            if match:
+                self.issue(
+                    "R4_SEMANTIC_OVERREACH",
+                    path,
+                    f"R4 factual evidence does not establish {match.group(0)!r}",
+                )
 
     def obj(self, value: Any, path: str, keys: set[str]) -> Mapping[str, Any]:
         if not isinstance(value, dict):
@@ -183,7 +227,8 @@ class _Validator:
         return value
 
     def evidence_ids(
-        self, value: Any, path: str, *, minimum: int = 0, maximum: int = 20
+        self, value: Any, path: str, *, minimum: int = 0, maximum: int = 20,
+        use: EvidenceUse = EvidenceUse.FACTUAL_REFERENCE,
     ) -> tuple[str, ...]:
         items = self.array(value, path, maximum)
         result: list[str] = []
@@ -194,11 +239,24 @@ class _Validator:
             if item not in self.evidence:
                 self.issue("UNKNOWN_EVIDENCE_ID", f"{path}[{index}]", item)
                 continue
-            if item not in self.decision_evidence_ids:
+            evidence = self.evidence[item]
+            if not is_evidence_item_eligible(evidence, use):
+                key = (
+                    str(evidence.get("domain") or ""),
+                    str(evidence.get("metricFamily") or ""),
+                    str(evidence.get("metric") or ""),
+                )
+                code = (
+                    "HISTORICAL_ONLY_EVIDENCE"
+                    if metric_lifecycle(key) is MetricLifecycle.HISTORICAL_ONLY
+                    else "DECISION_EVIDENCE_NOT_ELIGIBLE"
+                    if use is EvidenceUse.DECISION_SUPPORT
+                    else "FACTUAL_EVIDENCE_NOT_ELIGIBLE"
+                )
                 self.issue(
-                    "HISTORICAL_ONLY_EVIDENCE",
+                    code,
                     f"{path}[{index}]",
-                    "Evidence is readable but not eligible for a new decision",
+                    f"Evidence is not eligible for {use.value}",
                 )
                 continue
             result.append(item)
@@ -332,10 +390,12 @@ def _validate_observations(v: _Validator, value: Any) -> list[Observation]:
                 v.issue("FINDING_EVIDENCE_MISMATCH", f"{path}.findingType", evidence_id)
             if finding == "LimitedOrUnavailable" and evidence.get("status") not in {"Limited", "Unavailable"}:
                 v.issue("FINDING_EVIDENCE_MISMATCH", f"{path}.findingType", evidence_id)
+        statement = v.text(item.get("qualitativeStatement"), f"{path}.qualitativeStatement") or ""
+        v.check_r4_wording(statement, ids, f"{path}.qualitativeStatement")
         observations.append(Observation(
             id=v.id(item.get("id"), f"{path}.id", "observation"),
             finding_type=finding,
-            qualitative_statement=v.text(item.get("qualitativeStatement"), f"{path}.qualitativeStatement") or "",
+            qualitative_statement=statement,
             evidence_ids=ids,
             importance=v.enum(item.get("importance"), f"{path}.importance", IMPORTANCE_VALUES),
         ))
@@ -349,9 +409,11 @@ def _validate_interpretations(v: _Validator, value: Any) -> list[Interpretation]
         item = v.obj(raw_item, path, {"id", "statement", "evidenceIds", "limitationEvidenceIds", "limitationWarningCodes"})
         ids = v.evidence_ids(item.get("evidenceIds"), f"{path}.evidenceIds", minimum=1)
         limits = v.evidence_ids(item.get("limitationEvidenceIds"), f"{path}.limitationEvidenceIds")
+        statement = v.text(item.get("statement"), f"{path}.statement") or ""
+        v.check_r4_wording(statement, (*ids, *limits), f"{path}.statement")
         interpretations.append(Interpretation(
             id=v.id(item.get("id"), f"{path}.id", "interpretation"),
-            statement=v.text(item.get("statement"), f"{path}.statement") or "",
+            statement=statement,
             evidence_ids=ids,
             limitation_evidence_ids=limits,
             limitation_warning_codes=v.warning_list(item.get("limitationWarningCodes"), f"{path}.limitationWarningCodes"),
@@ -401,8 +463,8 @@ def _validate_hypotheses(
             "counterEvidenceSearchStatus", "limitationWarningCodes", "assumptions",
             "alternativeExplanations", "evidenceGapIds", "falsificationChecks",
         })
-        support = v.evidence_ids(item.get("supportingEvidenceIds"), f"{path}.supportingEvidenceIds", minimum=1)
-        counter = v.evidence_ids(item.get("counterEvidenceIds"), f"{path}.counterEvidenceIds")
+        support = v.evidence_ids(item.get("supportingEvidenceIds"), f"{path}.supportingEvidenceIds", minimum=1, use=EvidenceUse.DECISION_SUPPORT)
+        counter = v.evidence_ids(item.get("counterEvidenceIds"), f"{path}.counterEvidenceIds", use=EvidenceUse.DECISION_SUPPORT)
         search = v.enum(item.get("counterEvidenceSearchStatus"), f"{path}.counterEvidenceSearchStatus", COUNTER_SEARCH_VALUES)
         if search == "FoundInSuppliedBrief" and not counter:
             v.issue("COUNTER_EVIDENCE_INVARIANT", f"{path}.counterEvidenceIds", "FoundInSuppliedBrief requires counter evidence")
@@ -452,10 +514,22 @@ def _validate_change_candidates(
         })
         target_type = v.enum(target_raw.get("targetType"), f"{path}.target.targetType", TARGET_TYPES)
         target_domain = v.enum(target_raw.get("domain"), f"{path}.target.domain", set(KNOWN_ANALYSES) | {"crossDomain"})
-        entity_type = v.text(target_raw.get("entityType"), f"{path}.target.entityType", nullable=True)
-        entity_key = v.text(target_raw.get("entityKey"), f"{path}.target.entityKey", nullable=True)
-        metric_family = v.text(target_raw.get("metricFamily"), f"{path}.target.metricFamily", nullable=True)
-        metric = v.text(target_raw.get("metric"), f"{path}.target.metric", nullable=True)
+        entity_type = v.text(
+            target_raw.get("entityType"), f"{path}.target.entityType",
+            nullable=True, allow_numeric=True,
+        )
+        entity_key = v.text(
+            target_raw.get("entityKey"), f"{path}.target.entityKey",
+            nullable=True, allow_numeric=True,
+        )
+        metric_family = v.text(
+            target_raw.get("metricFamily"), f"{path}.target.metricFamily",
+            nullable=True, allow_numeric=True,
+        )
+        metric = v.text(
+            target_raw.get("metric"), f"{path}.target.metric",
+            nullable=True, allow_numeric=True,
+        )
         description = v.text(target_raw.get("description"), f"{path}.target.description", nullable=True)
         requires_context = v.bool(target_raw.get("requiresGameDesignContext"), f"{path}.target.requiresGameDesignContext")
         if target_type == "EvidenceEntity" and not any(
@@ -467,8 +541,14 @@ def _validate_change_candidates(
             for evidence_id, evidence in v.evidence.items()
         ):
             v.issue("UNKNOWN_EVIDENCE_ENTITY", f"{path}.target", "entity is not present in selected evidence")
-        if target_type == "EvidenceMetric" and (target_domain, metric_family, metric) not in v.target_metric_keys:
-            v.issue("UNKNOWN_METRIC", f"{path}.target", "metric is not in the shared registry")
+        raw_target_key = (str(target_raw.get("domain") or ""), metric_family, metric)
+        if target_type == "EvidenceMetric" and raw_target_key not in v.target_metric_keys:
+            code = (
+                "TARGET_METRIC_NOT_ELIGIBLE"
+                if raw_target_key in known_metric_keys()
+                else "UNKNOWN_METRIC"
+            )
+            v.issue(code, f"{path}.target", "metric lacks target authority")
         if target_type == "Conceptual" and not requires_context:
             v.issue("CONCEPTUAL_TARGET_REQUIRES_CONTEXT", f"{path}.target.requiresGameDesignContext", "must be true")
         proposed_raw = v.obj(item.get("proposedChange"), f"{path}.proposedChange", {
@@ -494,8 +574,8 @@ def _validate_change_candidates(
             or direction not in {"Increase", "Decrease"}
         ):
             v.issue("HEURISTIC_TUNING_POLICY", f"{path}.proposedChange", "numeric tuning requires the heuristic experiment contract")
-        support = v.evidence_ids(item.get("supportingEvidenceIds"), f"{path}.supportingEvidenceIds", minimum=1)
-        counter = v.evidence_ids(item.get("counterEvidenceIds"), f"{path}.counterEvidenceIds")
+        support = v.evidence_ids(item.get("supportingEvidenceIds"), f"{path}.supportingEvidenceIds", minimum=1, use=EvidenceUse.DECISION_SUPPORT)
+        counter = v.evidence_ids(item.get("counterEvidenceIds"), f"{path}.counterEvidenceIds", use=EvidenceUse.DECISION_SUPPORT)
         search = v.enum(item.get("counterEvidenceSearchStatus"), f"{path}.counterEvidenceSearchStatus", COUNTER_SEARCH_VALUES)
         if (search == "FoundInSuppliedBrief") != bool(counter):
             v.issue("COUNTER_EVIDENCE_INVARIANT", f"{path}.counterEvidenceIds", "search status and list disagree")
@@ -518,7 +598,10 @@ def _validate_change_candidates(
                 str(direction_item.get("metric")),
             )
             if key not in v.metric_keys:
-                v.issue("UNKNOWN_METRIC", dpath, ".".join(key))
+                v.issue(
+                    "TARGET_METRIC_NOT_ELIGIBLE" if key in known_metric_keys() else "UNKNOWN_METRIC",
+                    dpath, ".".join(key),
+                )
             expected_directions.append(ExpectedObservableDirection(
                 domain=key[0], metric_family=key[1], metric=key[2],
                 direction=v.enum(direction_item.get("direction"), f"{dpath}.direction", OBSERVABLE_DIRECTIONS),
@@ -571,6 +654,8 @@ def _metric_refs(
     value: Any,
     path: str,
     maximum: int = 10,
+    *,
+    monitor_only_allowed: bool = False,
 ) -> tuple[MetricReference, ...]:
     refs: list[MetricReference] = []
     for index, raw_metric in enumerate(v.array(value, path, maximum)):
@@ -581,8 +666,15 @@ def _metric_refs(
             str(metric_item.get("metricFamily")),
             str(metric_item.get("metric")),
         )
-        if key not in v.metric_keys:
-            v.issue("UNKNOWN_METRIC", item_path, ".".join(key))
+        allowed = v.monitor_metric_keys if monitor_only_allowed else v.metric_keys
+        if key not in allowed:
+            code = "TARGET_METRIC_NOT_ELIGIBLE" if key in known_metric_keys() else "UNKNOWN_METRIC"
+            if monitor_only_allowed and key in monitor_metric_keys():
+                code = "MONITOR_METRIC_RUNTIME_AUTHORITY_DENIED"
+            v.issue(
+                code,
+                item_path, ".".join(key),
+            )
         refs.append(MetricReference(*key))
     return tuple(refs)
 
@@ -616,7 +708,10 @@ def _validate_validation_plans(v: _Validator, value: Any) -> list[ValidationPlan
             id=v.id(item.get("id"), f"{path}.id", "validation"),
             change_candidate_id=v.id(item.get("changeCandidateId"), f"{path}.changeCandidateId", "change"),
             analyses_to_rerun=analyses,
-            metrics_to_watch=_metric_refs(v, item.get("metricsToWatch"), f"{path}.metricsToWatch"),
+            metrics_to_watch=_metric_refs(
+                v, item.get("metricsToWatch"), f"{path}.metricsToWatch",
+                monitor_only_allowed=True,
+            ),
             guardrail_metrics=_metric_refs(v, item.get("guardrailMetrics"), f"{path}.guardrailMetrics"),
             minimum_evidence_requirements=requirements,
             comparison_plan=v.enum(item.get("comparisonPlan"), f"{path}.comparisonPlan", COMPARISON_PLANS),

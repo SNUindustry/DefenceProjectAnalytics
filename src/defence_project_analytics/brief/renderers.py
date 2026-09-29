@@ -267,6 +267,11 @@ def brief_payload(
             "bestEffortAbsenceIsDefinitive": False,
             "programmaticNavigationMeansUserIntent": False,
             "noNextRunMeansRetentionOutcome": False,
+            "observedUninstallMeansPermanentLoss": False,
+            "rightCensoredMeansNonReturn": False,
+            "r4EvidenceMaySupportDecisions": False,
+            "r4EvidenceMayBeTargetGuardrailOrRollback": False,
+            "r4MonitorOnlyRequiresRuntimeComparisonAllowed": True,
         },
         "selectionSummary": summary,
     }

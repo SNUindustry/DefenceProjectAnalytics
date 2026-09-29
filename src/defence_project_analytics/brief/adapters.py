@@ -25,9 +25,11 @@ from defence_project_analytics.brief.registry import (
     COMPARISON_TABLES,
     active_source_warning_codes,
     is_evidence_metric_eligible,
+    required_tables,
     SUMMARY_METRICS,
     TABLE_EVIDENCE,
 )
+from defence_project_analytics.metric_registry import metric_authority
 
 
 _SLUG = re.compile(r"[^a-z0-9]+")
@@ -104,6 +106,113 @@ def _single_value(value_type: str, raw: Any) -> tuple[Mapping[str, Any], bool]:
     return {"value": clean}, clean is not None
 
 
+def _retention_authority(
+    bundle: LoadedSourceBundle,
+    family: str,
+    metric: str,
+) -> Mapping[str, Any]:
+    if bundle.analysis_type != "retentionEvidence":
+        return {}
+    static = metric_authority((bundle.domain, family, metric))
+    resolution = bundle.metrics.get(family, {}).get("authorityResolution", {})
+    runtime_raw = resolution.get("comparison", {}) if isinstance(resolution, Mapping) else {}
+    runtime_decision = runtime_raw.get("decision")
+    if runtime_decision not in {"Allowed", "Denied"}:
+        runtime_decision = "Denied"
+    reasons = runtime_raw.get("reasons")
+    if not isinstance(reasons, list):
+        reasons = ["MissingRuntimeComparisonAuthority"]
+    evidence_class = (
+        "DirectBehaviorObservation"
+        if family == "gameplayReturn" and metric != "matureAnchorCount"
+        else "DirectLifecycleObservation"
+        if family == "appReturn" and metric != "matureAnchorCount"
+        else "BoundedAbsenceObservation"
+        if family in {"gameplayReturn", "appReturn"}
+        else "CensoredObservation"
+        if family == "retentionEvidence" and metric == "rightCensoredCount"
+        else "DirectRemovalObservation"
+        if family == "observedUninstall" and metric == "mappedObservedCount"
+        else "SourceQualityObservation"
+        if family == "observedUninstall"
+        else "MaturityObservation"
+    )
+    scope = bundle.metadata.get("scope", {})
+    source_cuts = []
+    for raw in bundle.metadata.get("sourceCuts", ()):
+        if not isinstance(raw, Mapping):
+            continue
+        source_cuts.append({
+            "artifactType": raw.get("artifactType"),
+            "sha256Digest": raw.get("sha256Digest"),
+            "finalizationState": raw.get("finalizationState"),
+            "analysisAsOfUtc": raw.get("analysisAsOfUtc"),
+        })
+    finalization_states = tuple(sorted({
+        str(item.get("finalizationState"))
+        for item in source_cuts if item.get("finalizationState") is not None
+    }))
+    comparison_allowed = bool(
+        static.comparison_eligible and runtime_decision == "Allowed"
+    )
+    return {
+        "evidenceClass": evidence_class,
+        "subjectLevel": (
+            "Anchor" if family in {"gameplayReturn", "appReturn", "retentionEvidence"}
+            else "ObservedEvent"
+        ),
+        "factualEligible": bool(static.evidence_eligible),
+        "comparisonEligible": bool(static.comparison_eligible),
+        "runtimeComparison": {
+            "decision": runtime_decision,
+            "reasons": tuple(str(item) for item in reasons),
+        },
+        "decisionEligible": False,
+        "targetEligible": False,
+        "guardrailEligible": False,
+        "rollbackEligible": False,
+        "monitorOnlyEligible": comparison_allowed,
+        "analysisAsOfUtc": scope.get("analysisAsOfUtc"),
+        "horizon": {
+            "horizonDays": scope.get("horizonDays"),
+            "sourceUploadGraceHours": scope.get("sourceUploadGraceHours"),
+        },
+        "sourceFinalizationStates": finalization_states,
+        "sourceFinalizationState": (
+            finalization_states[0]
+            if len(finalization_states) == 1
+            else "Mixed" if finalization_states else "Unknown"
+        ),
+        "sourceCuts": tuple(source_cuts),
+        "denominatorSemantics": (
+            "mature anchors within the fixed horizon"
+            if family in {"gameplayReturn", "appReturn"}
+            else "source-defined factual observation count"
+        ),
+        "maturityState": (
+            "NotApplicable"
+            if family == "observedUninstall"
+            else "FixedHorizonMatured"
+            if (
+                scope.get("horizonDays") is not None
+                and bool(bundle.metrics.get(family, {}).get("matureAnchorCount"))
+            )
+            else "NoMatureAnchors"
+            if scope.get("horizonDays") is not None
+            else "NoFixedHorizon"
+        ),
+        "sourceQuality": (
+            {
+                "provisionalObservedCount": bundle.metrics
+                .get("observedUninstall", {})
+                .get("provisionalObservedCount"),
+            }
+            if family == "observedUninstall"
+            else {}
+        ),
+    }
+
+
 def _table_value(metric: Any, row: Mapping[str, Any]) -> tuple[Mapping[str, Any], bool]:
     value = _clean(row.get(metric.value_column))
     if metric.value_type in {"ratio", "derivedClearRatio"}:
@@ -133,6 +242,17 @@ def adapt_single_bundle(bundle: LoadedSourceBundle, mode: str) -> list[EvidenceC
         if not is_evidence_metric_eligible(bundle.domain, spec.family, spec.metric):
             continue
         value, observed = _single_value(spec.value_type, _value(bundle.metrics, spec.path))
+        if (
+            bundle.analysis_type == "retentionEvidence"
+            and spec.family in {"gameplayReturn", "appReturn"}
+            and spec.metric == "matureAnchorCount"
+        ):
+            value = {
+                **value,
+                "boundedAbsenceCount": bundle.metrics
+                .get(spec.family, {})
+                .get("boundedAbsenceCount"),
+            }
         status = "Unavailable" if not observed else ("Limited" if warnings else "Comparable")
         candidates.append(EvidenceCandidate(
             mode=mode,
@@ -157,8 +277,12 @@ def adapt_single_bundle(bundle: LoadedSourceBundle, mode: str) -> list[EvidenceC
             ),
             priority=(20 + registry_index if spec.core else 30 + registry_index),
             core=spec.core,
+            authority=_retention_authority(bundle, spec.family, spec.metric),
         ))
+    source_tables = required_tables(bundle.analysis_type, bundle.metadata["analysisVersion"])
     for filename, table_spec in TABLE_EVIDENCE[bundle.analysis_type].items():
+        if filename not in source_tables:
+            continue
         artifact = f"tables/{filename}"
         frame = bundle.tables[filename]
         for raw_row in frame.to_dict(orient="records"):
@@ -352,6 +476,7 @@ def assign_evidence_ids(
             priority=candidate.priority,
             core=candidate.core,
             source_designated=candidate.source_designated,
+            authority=candidate.authority,
             provenance=candidate.provenance,
         ))
     return tuple(result)

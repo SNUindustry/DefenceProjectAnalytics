@@ -33,8 +33,8 @@ def test_prompt_is_deterministic_and_preserves_all_selected_evidence(tmp_path: P
     assert "candidate minus baseline" in left.prompt
     assert "possible adverse consequences or uncertainties" in left.prompt
     assert left.request_payload["analysisVersion"] == ANALYSIS_VERSION == "1.0.0"
-    assert left.request_payload["analysisPolicyVersion"] == ANALYSIS_POLICY_VERSION == "1.3.0"
-    assert left.request_payload["promptTemplateVersion"] == PROMPT_TEMPLATE_VERSION == "1.3.0"
+    assert left.request_payload["analysisPolicyVersion"] == ANALYSIS_POLICY_VERSION == "1.6.0"
+    assert left.request_payload["promptTemplateVersion"] == PROMPT_TEMPLATE_VERSION == "1.5.0"
     assert "Evidence gaps may discuss a possible causal relationship" in left.prompt
     assert left.request_payload["responseContractVersion"] == RESPONSE_CONTRACT_VERSION == "1.0.0"
 
