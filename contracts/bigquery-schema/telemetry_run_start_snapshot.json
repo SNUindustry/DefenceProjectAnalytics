@@ -13,6 +13,8 @@
   {"name": "startingCurrentHp", "type": "FLOAT64", "mode": "NULLABLE"},
   {"name": "startingMaxHp", "type": "FLOAT64", "mode": "NULLABLE"},
   {"name": "sessionStartTime", "type": "INT64", "mode": "NULLABLE"},
+  {"name": "appProcessSessionId", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "latestForegroundOccurrenceId", "type": "STRING", "mode": "NULLABLE"},
   {"name": "lobbyStatSnapshotCount", "type": "INT64", "mode": "NULLABLE"},
   {"name": "loadoutWeaponCount", "type": "INT64", "mode": "NULLABLE"},
   {"name": "buildVersion", "type": "STRING", "mode": "NULLABLE"},

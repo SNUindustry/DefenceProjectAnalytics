@@ -1,0 +1,14 @@
+[
+  {"path": "event_timestamp", "type": "INTEGER", "mode": "NULLABLE"},
+  {"path": "event_name", "type": "STRING", "mode": "NULLABLE"},
+  {"path": "event_params", "type": "RECORD", "mode": "REPEATED"},
+  {"path": "event_params.key", "type": "STRING", "mode": "NULLABLE"},
+  {"path": "event_params.value.string_value", "type": "STRING", "mode": "NULLABLE"},
+  {"path": "event_params.value.int_value", "type": "INTEGER", "mode": "NULLABLE"},
+  {"path": "user_id", "type": "STRING", "mode": "NULLABLE"},
+  {"path": "user_pseudo_id", "type": "STRING", "mode": "NULLABLE"},
+  {"path": "stream_id", "type": "STRING", "mode": "NULLABLE"},
+  {"path": "platform", "type": "STRING", "mode": "NULLABLE"},
+  {"path": "app_info", "type": "RECORD", "mode": "NULLABLE"},
+  {"path": "app_info.version", "type": "STRING", "mode": "NULLABLE"}
+]

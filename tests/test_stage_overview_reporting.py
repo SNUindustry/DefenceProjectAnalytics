@@ -28,7 +28,10 @@ def test_overview_bundle_requires_content_version(tmp_path) -> None:
 def test_default_cli_stdout_remains_snake_case(monkeypatch, capsys) -> None:
     monkeypatch.setattr("defence_project_analytics.cli.get_client", lambda config: object())
     monkeypatch.setattr("defence_project_analytics.cli.get_stage_overview", lambda *args, **kwargs: METRICS)
-    assert main(["stage-overview", "--stage-key", "stage1", "--environment", "Test"]) == 0
+    assert main([
+        "--backend", "test",
+        "stage-overview", "--stage-key", "stage1", "--environment", "Test",
+    ]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["filters"] == {"stage_key": "stage1", "environment": "Test", "content_version": None}
     assert payload["metrics"]["clear_rate"] == 0.5

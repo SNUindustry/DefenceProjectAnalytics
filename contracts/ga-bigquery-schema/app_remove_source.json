@@ -1,0 +1,18 @@
+[
+  {"path": "event_date", "type": "STRING", "mode": "NULLABLE"},
+  {"path": "event_timestamp", "type": "INTEGER", "mode": "NULLABLE"},
+  {"path": "event_name", "type": "STRING", "mode": "NULLABLE"},
+  {"path": "event_params", "type": "RECORD", "mode": "REPEATED"},
+  {"path": "event_previous_timestamp", "type": "INTEGER", "mode": "NULLABLE"},
+  {"path": "event_bundle_sequence_id", "type": "INTEGER", "mode": "NULLABLE"},
+  {"path": "event_server_timestamp_offset", "type": "INTEGER", "mode": "NULLABLE"},
+  {"path": "event_original_occurrence_timestamp", "type": "INTEGER", "mode": "NULLABLE"},
+  {"path": "batch_event_index", "type": "INTEGER", "mode": "NULLABLE"},
+  {"path": "batch_ordering_id", "type": "INTEGER", "mode": "NULLABLE"},
+  {"path": "user_id", "type": "STRING", "mode": "NULLABLE"},
+  {"path": "user_pseudo_id", "type": "STRING", "mode": "NULLABLE"},
+  {"path": "stream_id", "type": "STRING", "mode": "NULLABLE"},
+  {"path": "platform", "type": "STRING", "mode": "NULLABLE"},
+  {"path": "app_info", "type": "RECORD", "mode": "NULLABLE"},
+  {"path": "app_info.version", "type": "STRING", "mode": "NULLABLE"}
+]

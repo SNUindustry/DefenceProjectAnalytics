@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Mapping
 
 
@@ -695,6 +695,186 @@ class PostRunBehaviorMetrics:
     next_run: PostRunNextRunMetrics
     action_sequence: ActionSequenceMetrics
     data_quality: PostRunDataQuality
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RunRetentionAnalysisScope:
+    """Reproducible optional-stage scope for run-based retention analysis."""
+
+    environment: str
+    content_version: int
+    stage_key: str | None = None
+    final_outcome: str | None = None
+    app_version: str | None = None
+    release_id: str | None = None
+    release_channel: str | None = None
+    release_type: str | None = None
+    is_development_build: bool | None = None
+    run_ended_at_utc_start: datetime | None = None
+    run_ended_at_utc_end: datetime | None = None
+    uploaded_at_utc_start: datetime | None = None
+    uploaded_at_utc_end: datetime | None = None
+    analysis_as_of_utc: datetime
+    long_term_no_next_run_threshold_days: int | None = None
+    source_upload_grace_hours: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ObservedAppReturnScope:
+    environment: str
+    content_version: int
+    analysis_as_of_utc: datetime
+    stage_key: str | None = None
+    final_outcome: str | None = None
+    app_version: str | None = None
+    release_id: str | None = None
+    release_channel: str | None = None
+    release_type: str | None = None
+    run_ended_at_utc_start: datetime | None = None
+    run_ended_at_utc_end: datetime | None = None
+    uploaded_at_utc_start: datetime | None = None
+    uploaded_at_utc_end: datetime | None = None
+    threshold_days: int | None = None
+    source_upload_grace_hours: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GaIdentityBridgeScope:
+    """Explicit custom-backend and GA-source dimensions for R3-B."""
+
+    environment: str
+    telemetry_backend: str
+    ga_project: str
+    ga_property_id: str
+    ga_stream_id: str
+    ga_dataset: str
+    ga_date_start: date
+    ga_date_end: date
+    analysis_as_of_utc: datetime
+    observation_start_utc: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ObservedUninstallScope:
+    """Explicit Production GA and R3-B temporal-attribution source dimensions."""
+
+    environment: str
+    telemetry_backend: str
+    ga_project: str
+    ga_property_id: str
+    ga_stream_id: str
+    ga_dataset: str
+    ga_date_start: date
+    ga_date_end: date
+    analysis_as_of_utc: datetime
+    observation_start_utc: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class RunRetentionSampleSummary:
+    anchor_final_attempts: int
+    unique_players: int
+    clears: int
+    deaths: int
+    abandons: int
+    unrecognized_outcomes: int
+    eligible_anchors: int
+    ineligible_anchors: int
+    next_run_observed: int
+    no_next_run_observed_as_of: int
+
+
+@dataclass(frozen=True, slots=True)
+class RunRetentionDataQuality:
+    physical_anchor_rows: int
+    deduped_anchor_rows: int
+    missing_player_identity_anchors: int
+    missing_anchor_end_rows: int
+    conflicting_identity_anchors: int
+    invalid_timing_anchors: int
+    physical_next_candidate_rows: int
+    deduped_next_candidate_rows: int
+    resume_continuations_excluded: int
+    missing_run_start_snapshot_rows: int
+    ambiguous_next_attempt_order_groups: int
+    latency_right_censored_anchors: int
+    threshold_right_censored_anchors: int
+    cross_stage_next_attempts: int
+    cross_content_next_attempts: int
+    cross_release_next_attempts: int
+    next_outcome_pending_attempts: int
+
+
+@dataclass(frozen=True, slots=True)
+class RunRetentionDefinitions:
+    return_definition: str
+    anchor_observation_unit: str
+    observed_latency_observation_unit: str
+    observed_latency_distribution_condition: str
+    structural_next_run: str
+    snapshot_semantics: str
+    source_completion_semantics: str
+    identity_semantics: str
+    no_next_run_means_churn: bool = False
+    notes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class RunRetentionObservationMetrics:
+    eligible_anchors: int
+    ineligible_anchors: int
+    latency_right_censored: MetricRatio
+
+
+@dataclass(frozen=True, slots=True)
+class RunRetentionNextRunMetrics:
+    next_run_observed: MetricRatio
+    same_stage_next_run: MetricRatio
+    same_content_next_run: MetricRatio
+    cross_stage_next_attempts: int
+    cross_content_next_attempts: int
+    cross_release_next_attempts: int
+    next_outcome_pending_attempts: int
+
+
+@dataclass(frozen=True, slots=True)
+class RunRetentionDistributionSummary:
+    observed_count: int
+    missing_count: int
+    p50: float | None = None
+    p75: float | None = None
+    p90: float | None = None
+    p95: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RunRetentionLatencyMetrics:
+    observed_delay_seconds: RunRetentionDistributionSummary
+    censored_observation_age_seconds: RunRetentionDistributionSummary
+
+
+@dataclass(frozen=True, slots=True)
+class RunRetentionThresholdMetrics:
+    enabled: bool
+    threshold_days: int | None
+    source_upload_grace_hours: int | None
+    returned_within_threshold_count: int | None
+    returned_after_threshold_count: int | None
+    no_next_run_beyond_threshold_count: int | None
+    threshold_right_censored_count: int | None
+    threshold_exceeded_count: int | None
+    threshold_resolved_denominator: int | None
+    threshold_exceeded_rate: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class RunRetentionMetrics:
+    sample: RunRetentionSampleSummary
+    observation: RunRetentionObservationMetrics
+    next_run: RunRetentionNextRunMetrics
+    latency: RunRetentionLatencyMetrics
+    threshold_classification: RunRetentionThresholdMetrics
+    data_quality: RunRetentionDataQuality
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

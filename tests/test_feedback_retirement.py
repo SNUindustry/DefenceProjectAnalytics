@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import replace
+import json
 from pathlib import Path
 
 import pytest
 
+from defence_project_analytics.analysis_brief import AnalysisBriefRequest, generate_analysis_brief
 from defence_project_analytics.brief.registry import (
     HISTORICAL_ONLY_WARNING_CODES,
     is_evidence_metric_eligible,
@@ -27,9 +29,16 @@ from defence_project_analytics.metric_registry import (
     evidence_metric_keys,
     known_metric_keys,
     metric_lifecycle,
+    monitor_metric_keys,
     target_metric_keys,
 )
-from defence_project_analytics.post_run_behavior import ANALYSIS_VERSION, SQL_FILES, TABLE_SPECS
+from defence_project_analytics.post_run_behavior import (
+    ANALYSIS_VERSION, SQL_FILES, TABLE_SPECS, PostRunBehaviorRequest, _assemble_bundle,
+)
+from defence_project_analytics.reporting.warnings import PostRunThresholds
+from defence_project_analytics.reporting.writer import write_report_bundle
+
+from test_post_run_behavior import NOW, post_run_frames
 from llm_analysis_fixtures import make_package, valid_response
 
 
@@ -64,6 +73,27 @@ def test_current_post_run_contract_has_no_feedback_output_or_query() -> None:
     )
 
 
+def test_current_post_run_bundle_compiles_into_c1_without_retired_feedback(
+    tmp_path: Path,
+) -> None:
+    bundle = _assemble_bundle(
+        PostRunBehaviorRequest("Test", 4, analysis_as_of_utc=NOW), NOW,
+        post_run_frames(), estimated_bytes=0, thresholds=PostRunThresholds(),
+        generated_at_utc=NOW,
+    )
+    source = write_report_bundle(bundle, output_root=tmp_path, table_specs=TABLE_SPECS)
+    brief_path = generate_analysis_brief(
+        AnalysisBriefRequest("singleVersion", (source,)),
+        output_root=tmp_path / "brief", workspace_root=tmp_path,
+    )
+    assert (brief_path / "manifest.json").is_file()
+    evidence = json.loads((brief_path / "evidence.json").read_text(encoding="utf-8"))
+    items = evidence["evidenceItems"]
+    assert items
+    assert all(item["sourceAnalysisType"] == "postRunBehavior" for item in items)
+    assert all(item["metricFamily"] != "feedback" for item in items)
+
+
 def test_new_comparison_registry_excludes_feedback_but_keeps_legacy_registry() -> None:
     assert all(spec[0] != "feedback" for spec in comparison_summary_specs("postRunBehavior"))
     assert all(spec.metric_family != "feedback" for spec in comparison_table_specs("postRunBehavior"))
@@ -72,9 +102,11 @@ def test_new_comparison_registry_excludes_feedback_but_keeps_legacy_registry() -
     assert "LOW_FEEDBACK_SAMPLE" in HISTORICAL_ONLY_WARNING_CODES
 
 
-def test_anthropic_catalog_uses_only_target_eligible_metrics() -> None:
+def test_anthropic_catalog_uses_target_and_monitor_only_metrics() -> None:
     aliases = build_metric_alias_table()
-    assert set(aliases.canonical_metric_keys) == set(target_metric_keys())
+    assert set(aliases.canonical_metric_keys) == set(
+        target_metric_keys() | monitor_metric_keys()
+    )
     assert FEEDBACK_KEY not in aliases.canonical_metric_keys
 
 
@@ -124,4 +156,3 @@ def test_anthropic_evidence_aliases_omit_historical_feedback(tmp_path: Path) -> 
     )
     aliases = build_evidence_alias_table(replace(package, source=source))
     assert historical["evidenceId"] not in aliases.canonical_evidence_ids
-

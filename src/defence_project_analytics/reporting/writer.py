@@ -18,6 +18,10 @@ from defence_project_analytics.reporting.models import (
     ContentVersionComparisonScope,
     PostRunAnalysisScope,
     ProgressionAnalysisScope,
+    RunRetentionAnalysisScope,
+    ObservedAppReturnScope,
+    GaIdentityBridgeScope,
+    ObservedUninstallScope,
     ReportBundle,
 )
 from defence_project_analytics.reporting.renderers import assert_factual_markdown, render_csv, render_json, to_external
@@ -30,6 +34,10 @@ ReportScope = (
     AnalysisScope
     | ProgressionAnalysisScope
     | PostRunAnalysisScope
+    | RunRetentionAnalysisScope
+    | ObservedAppReturnScope
+    | GaIdentityBridgeScope
+    | ObservedUninstallScope
     | ContentVersionComparisonScope
 )
 
@@ -55,6 +63,11 @@ def scope_id(scope: ReportScope) -> str:
         return (
             f"{environment}__{scope_stage}__cv-{scope.baseline_content_version}"
             f"-vs-cv-{scope.candidate_content_version}__{scope_hash(scope)}"
+        )
+    if isinstance(scope, (GaIdentityBridgeScope, ObservedUninstallScope)):
+        return (
+            f"{environment}__ga-{scope.ga_property_id}-{scope.ga_stream_id}"
+            f"__{scope_hash(scope)}"
         )
     return f"{environment}__{scope_stage}__cv-{scope.content_version}__{scope_hash(scope)}"
 
@@ -85,6 +98,7 @@ def write_report_bundle(
     output_root: Path,
     overwrite: bool = False,
     table_specs: Mapping[str, tuple[tuple[str, ...], tuple[str, ...]]] | None = None,
+    include_manifest: bool = False,
 ) -> Path:
     """Write via a sibling temporary directory and atomically install the bundle."""
 
@@ -111,6 +125,22 @@ def write_report_bundle(
                 (table_dir / filename).write_text(
                     render_csv(frame, columns=columns, sort_by=sort_by), encoding="utf-8", newline="\n"
                 )
+        if include_manifest:
+            files = sorted(
+                path for path in temporary.rglob("*") if path.is_file()
+            )
+            manifest = {
+                "analysisType": bundle.metadata.analysis_type,
+                "analysisVersion": bundle.metadata.analysis_version,
+                "files": {
+                    path.relative_to(temporary).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                    for path in files
+                },
+            }
+            (temporary / "manifest.json").write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8", newline="\n",
+            )
         if target.exists():
             backup = target.with_name(f".{target.name}.backup-{os.getpid()}")
             if backup.exists():

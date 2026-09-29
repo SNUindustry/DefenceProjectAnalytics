@@ -12,7 +12,12 @@ WEAPON = "weaponPerformance"
 UPGRADE = "upgradeChoice"
 PROGRESSION = "progressionNextRun"
 POST_RUN = "postRunBehavior"
-METRIC_REGISTRY_VERSION = "1.1.0"
+RUN_RETENTION = "runRetention"
+OBSERVED_APP_RETURN = "observedAppReturn"
+GA_IDENTITY_BRIDGE = "gaIdentityBridge"
+OBSERVED_UNINSTALL = "observedUninstall"
+RETENTION_EVIDENCE = "retentionEvidence"
+METRIC_REGISTRY_VERSION = "1.5.0"
 
 
 class MetricLifecycle(str, Enum):
@@ -25,6 +30,24 @@ class MetricLifecycle(str, Enum):
 
     ACTIVE = "Active"
     HISTORICAL_ONLY = "HistoricalOnly"
+
+
+class EvidenceUse(str, Enum):
+    """Authority required by a particular C-2 reference, not by its source domain."""
+
+    FACTUAL_REFERENCE = "FactualReference"
+    DECISION_SUPPORT = "DecisionSupport"
+    TARGET_GUARDRAIL = "TargetGuardrail"
+
+
+@dataclass(frozen=True, slots=True)
+class MetricAuthority:
+    lifecycle: MetricLifecycle
+    known_readable: bool
+    comparison_eligible: bool
+    evidence_eligible: bool
+    decision_eligible: bool
+    target_eligible: bool
 
 
 COMPARISON_SUMMARY_SPECS: Mapping[
@@ -86,6 +109,92 @@ COMPARISON_SUMMARY_SPECS: Mapping[
         ("nextRun", "sameStageRetry", "nextRun.sameStageRetry", "ratio", "linkedWindows"),
     ),
 }
+
+RUN_RETENTION_METRIC_SPECS: tuple[tuple[str, str, str, str, str], ...] = (
+    ("sample", "anchorFinalAttempts", "sample.anchorFinalAttempts", "scalar", "attempts"),
+    ("sample", "eligibleAnchors", "sample.eligibleAnchors", "scalar", "attempts"),
+    ("nextRun", "nextRunObservedRate", "nextRun.nextRunObserved", "ratio", "eligibleAnchors"),
+    ("observation", "latencyRightCensoredRate", "observation.latencyRightCensored", "ratio", "eligibleAnchors"),
+    ("nextRun", "sameStageNextRunRate", "nextRun.sameStageNextRun", "ratio", "observedNextAttempts"),
+    ("nextRun", "sameContentNextRunRate", "nextRun.sameContentNextRun", "ratio", "observedNextAttempts"),
+    ("latency", "nextRunDelayP50", "latency.observedDelaySeconds.p50", "scalar", "seconds"),
+    ("latency", "nextRunDelayP75", "latency.observedDelaySeconds.p75", "scalar", "seconds"),
+    ("latency", "nextRunDelayP90", "latency.observedDelaySeconds.p90", "scalar", "seconds"),
+    ("latency", "nextRunDelayP95", "latency.observedDelaySeconds.p95", "scalar", "seconds"),
+    ("threshold", "thresholdExceededCount", "thresholdClassification.thresholdExceededCount", "scalar", "anchors"),
+    ("threshold", "thresholdExceededRate", "thresholdClassification.thresholdExceededRate", "scalar", "thresholdResolvedAnchors"),
+    ("threshold", "noNextRunBeyondThresholdCount", "thresholdClassification.noNextRunBeyondThresholdCount", "scalar", "anchors"),
+)
+
+OBSERVED_APP_RETURN_METRIC_SPECS: tuple[tuple[str, str, str, str, str], ...] = (
+    ("sample", "anchorFinalAttempts", "sample.anchorFinalAttempts", "scalar", "attempts"),
+    ("sample", "eligibleAnchors", "sample.eligibleAnchors", "scalar", "attempts"),
+    ("return", "observedReturnCount", "return.observedReturnCount", "scalar", "attempts"),
+    ("return", "observedReturnRate", "return.observedReturnRate", "ratio", "eligibleAnchors"),
+    ("return", "coldStartReturnCount", "return.coldStartReturnCount", "scalar", "attempts"),
+    ("return", "foregroundResumeReturnCount", "return.foregroundResumeReturnCount", "scalar", "attempts"),
+    ("observation", "rightCensoredCount", "observation.rightCensoredCount", "scalar", "attempts"),
+    ("observation", "rightCensoredRate", "observation.rightCensoredRate", "ratio", "eligibleAnchors"),
+    ("latency", "timeToObservedAppReturnP50", "latency.timeToObservedAppReturnP50", "scalar", "seconds"),
+    ("latency", "timeToObservedAppReturnP75", "latency.timeToObservedAppReturnP75", "scalar", "seconds"),
+    ("latency", "timeToObservedAppReturnP90", "latency.timeToObservedAppReturnP90", "scalar", "seconds"),
+    ("threshold", "returnedWithinThresholdCount", "threshold.returnedWithinThresholdCount", "scalar", "attempts"),
+    ("threshold", "returnedAfterThresholdCount", "threshold.returnedAfterThresholdCount", "scalar", "attempts"),
+    ("threshold", "noObservedReturnBeyondThresholdCount", "threshold.noObservedReturnBeyondThresholdCount", "scalar", "attempts"),
+)
+
+GA_IDENTITY_BRIDGE_METRIC_SPECS: tuple[tuple[str, str, str, str, str], ...] = (
+    ("source", "gaForegroundEvents", "source.gaForegroundEvents", "scalar", "events"),
+    ("source", "dailyRows", "source.dailyRows", "scalar", "events"),
+    ("source", "intradayRows", "source.intradayRows", "scalar", "events"),
+    ("mapping", "mappedCount", "mapping.mappedCount", "scalar", "observations"),
+    ("mapping", "mappedRate", "mapping.mappedRate", "ratio", "observations"),
+    ("mapping", "unmappedCount", "mapping.unmappedCount", "scalar", "observations"),
+    ("mapping", "missingUserIdCount", "mapping.missingUserIdCount", "scalar", "observations"),
+    ("mapping", "missingPseudoIdCount", "mapping.missingPseudoIdCount", "scalar", "observations"),
+    ("mapping", "missingOccurrenceCount", "mapping.missingOccurrenceCount", "scalar", "observations"),
+    ("mapping", "unmatchedGaCount", "mapping.unmatchedGaCount", "scalar", "observations"),
+    ("mapping", "customConflictCount", "mapping.customConflictCount", "scalar", "observations"),
+    ("mapping", "gaConflictCount", "mapping.gaConflictCount", "scalar", "observations"),
+    ("mapping", "temporalConflictCount", "mapping.temporalConflictCount", "scalar", "observations"),
+    ("mapping", "durableIdentityConflictCount", "mapping.durableIdentityConflictCount", "scalar", "observations"),
+    ("mapping", "distinctPseudoCount", "mapping.distinctPseudoCount", "scalar", "appInstances"),
+    ("mapping", "distinctTelemetryPlayerCount", "mapping.distinctTelemetryPlayerCount", "scalar", "profiles"),
+    ("mapping", "distinctRetentionBridgeCount", "mapping.distinctRetentionBridgeCount", "scalar", "profiles"),
+    ("mapping", "multiProfilePseudoCount", "mapping.multiProfilePseudoCount", "scalar", "appInstances"),
+    ("mapping", "profileSwitchObservationCount", "mapping.profileSwitchObservationCount", "scalar", "transitions"),
+)
+
+OBSERVED_UNINSTALL_METRIC_SPECS: tuple[tuple[str, str, str, str, str], ...] = (
+    ("source", "appRemoveEvents", "source.appRemoveEvents", "scalar", "events"),
+    ("uninstall", "observedCount", "uninstall.observedCount", "scalar", "events"),
+    ("uninstall", "distinctMappedProfiles", "uninstall.distinctMappedProfiles", "scalar", "profiles"),
+    ("uninstall", "distinctPseudoIds", "uninstall.distinctPseudoIds", "scalar", "appInstances"),
+    ("attribution", "mappedCount", "attribution.mappedCount", "scalar", "events"),
+    ("attribution", "mappedRate", "attribution.mappedRate", "ratio", "events"),
+    ("attribution", "unmappedCount", "attribution.unmappedCount", "scalar", "events"),
+    ("attribution", "ambiguousCount", "attribution.ambiguousCount", "scalar", "events"),
+    ("attribution", "missingPseudoCount", "attribution.missingPseudoCount", "scalar", "events"),
+    ("attribution", "noPriorMappingCount", "attribution.noPriorMappingCount", "scalar", "events"),
+    ("attribution", "temporalConflictCount", "attribution.temporalConflictCount", "scalar", "events"),
+    ("attribution", "gaDuplicateConflictCount", "attribution.gaDuplicateConflictCount", "scalar", "events"),
+    ("mappingAge", "p50Seconds", "mappingAge.p50Seconds", "scalar", "seconds"),
+    ("mappingAge", "p95Seconds", "mappingAge.p95Seconds", "scalar", "seconds"),
+)
+
+RETENTION_EVIDENCE_METRIC_SPECS: tuple[tuple[str, str, str, str, str], ...] = (
+    ("gameplayReturn", "returnedWithinHorizonCount", "gameplayReturn.returnedWithinHorizonCount", "scalar", "anchors"),
+    ("gameplayReturn", "matureAnchorCount", "gameplayReturn.matureAnchorCount", "scalar", "anchors"),
+    ("gameplayReturn", "returnedWithinHorizonRate", "gameplayReturn.returnedWithinHorizonRate", "scalar", "ratio"),
+    ("appReturn", "returnedWithinHorizonCount", "appReturn.returnedWithinHorizonCount", "scalar", "anchors"),
+    ("appReturn", "matureAnchorCount", "appReturn.matureAnchorCount", "scalar", "anchors"),
+    ("appReturn", "returnedWithinHorizonRate", "appReturn.returnedWithinHorizonRate", "scalar", "ratio"),
+    ("retentionEvidence", "rightCensoredCount", "retentionEvidence.rightCensoredCount", "scalar", "anchors"),
+    ("retentionEvidence", "matureAnchorCount", "retentionEvidence.matureAnchorCount", "scalar", "anchors"),
+    ("observedUninstall", "mappedObservedCount", "observedUninstall.mappedObservedCount", "scalar", "events"),
+    ("observedUninstall", "unmappedObservedCount", "observedUninstall.unmappedObservedCount", "scalar", "events"),
+    ("observedUninstall", "ambiguousObservedCount", "observedUninstall.ambiguousObservedCount", "scalar", "events"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +262,11 @@ def known_metric_keys() -> frozenset[tuple[str, str, str]]:
             result.update(
                 (domain, table.metric_family, metric[0]) for metric in table.metrics
             )
+    result.update((RUN_RETENTION, family, metric) for family, metric, *_ in RUN_RETENTION_METRIC_SPECS)
+    result.update((OBSERVED_APP_RETURN, family, metric) for family, metric, *_ in OBSERVED_APP_RETURN_METRIC_SPECS)
+    result.update((GA_IDENTITY_BRIDGE, family, metric) for family, metric, *_ in GA_IDENTITY_BRIDGE_METRIC_SPECS)
+    result.update((OBSERVED_UNINSTALL, family, metric) for family, metric, *_ in OBSERVED_UNINSTALL_METRIC_SPECS)
+    result.update((RETENTION_EVIDENCE, family, metric) for family, metric, *_ in RETENTION_EVIDENCE_METRIC_SPECS)
     return frozenset(result)
 
 
@@ -162,36 +276,74 @@ def metric_lifecycle(key: tuple[str, str, str]) -> MetricLifecycle:
     return MetricLifecycle.ACTIVE
 
 
-def _eligible_metric_keys() -> frozenset[tuple[str, str, str]]:
+def metric_authority(key: tuple[str, str, str]) -> MetricAuthority:
+    lifecycle = metric_lifecycle(key)
+    if lifecycle is MetricLifecycle.HISTORICAL_ONLY:
+        return MetricAuthority(lifecycle, True, False, False, False, False)
+    if key[0] in {
+        RUN_RETENTION, OBSERVED_APP_RETURN, GA_IDENTITY_BRIDGE, OBSERVED_UNINSTALL,
+    }:
+        return MetricAuthority(lifecycle, True, False, True, False, False)
+    if key[0] == RETENTION_EVIDENCE:
+        comparison = key[1] in {"gameplayReturn", "appReturn"}
+        return MetricAuthority(lifecycle, True, comparison, True, False, False)
+    return MetricAuthority(lifecycle, True, True, True, True, True)
+
+
+def _eligible_metric_keys(attribute: str) -> frozenset[tuple[str, str, str]]:
     return frozenset(
         key for key in known_metric_keys()
-        if metric_lifecycle(key) is MetricLifecycle.ACTIVE
+        if bool(getattr(metric_authority(key), attribute))
     )
 
 
 def comparison_metric_keys() -> frozenset[tuple[str, str, str]]:
-    return _eligible_metric_keys()
+    return _eligible_metric_keys("comparison_eligible")
 
 
 def evidence_metric_keys() -> frozenset[tuple[str, str, str]]:
-    return _eligible_metric_keys()
+    return _eligible_metric_keys("evidence_eligible")
 
 
 def decision_metric_keys() -> frozenset[tuple[str, str, str]]:
-    return _eligible_metric_keys()
+    return _eligible_metric_keys("decision_eligible")
 
 
 def target_metric_keys() -> frozenset[tuple[str, str, str]]:
-    return _eligible_metric_keys()
+    return _eligible_metric_keys("target_eligible")
+
+
+def monitor_metric_keys() -> frozenset[tuple[str, str, str]]:
+    """Return metrics with static capability for MonitorOnly validation use.
+
+    Runtime comparison authority remains a separate, required gate for R4 metrics.
+    """
+
+    return frozenset(
+        key for key in comparison_metric_keys() if key[0] == RETENTION_EVIDENCE
+    )
 
 
 def is_decision_evidence_item(item: Mapping[str, Any]) -> bool:
+    return is_evidence_item_eligible(item, EvidenceUse.DECISION_SUPPORT)
+
+
+def is_evidence_item_eligible(item: Mapping[str, Any], use: EvidenceUse) -> bool:
     key = (
         str(item.get("domain") or ""),
         str(item.get("metricFamily") or ""),
         str(item.get("metric") or ""),
     )
-    return key in decision_metric_keys()
+    authority = metric_authority(key)
+    if key not in known_metric_keys() or not authority.known_readable:
+        return False
+    if use is EvidenceUse.FACTUAL_REFERENCE:
+        return authority.evidence_eligible
+    if use is EvidenceUse.DECISION_SUPPORT:
+        return authority.decision_eligible
+    if use is EvidenceUse.TARGET_GUARDRAIL:
+        return authority.target_eligible and authority.decision_eligible
+    raise ValueError(f"Unsupported Evidence use: {use!r}")
 
 
 def comparison_summary_specs(
@@ -199,7 +351,7 @@ def comparison_summary_specs(
 ) -> tuple[tuple[str, str, str, str, str], ...]:
     return tuple(
         spec for spec in COMPARISON_SUMMARY_SPECS.get(domain, ())
-        if metric_lifecycle((domain, spec[0], spec[1])) is MetricLifecycle.ACTIVE
+        if (domain, spec[0], spec[1]) in comparison_metric_keys()
     )
 
 
@@ -207,8 +359,7 @@ def comparison_table_specs(domain: str) -> tuple[ComparisonTableSpec, ...]:
     return tuple(
         spec for spec in COMPARISON_TABLE_SPECS.get(domain, ())
         if all(
-            metric_lifecycle((domain, spec.metric_family, metric[0]))
-            is MetricLifecycle.ACTIVE
+            (domain, spec.metric_family, metric[0]) in comparison_metric_keys()
             for metric in spec.metrics
         )
     )

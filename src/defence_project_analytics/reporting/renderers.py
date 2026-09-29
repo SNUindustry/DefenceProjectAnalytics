@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import fields, is_dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import json
 import math
 from numbers import Real
@@ -39,6 +39,8 @@ def _finite_scalar(value: Any) -> Any:
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("Report datetimes must be timezone-aware")
         return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    if isinstance(value, date):
+        return value.isoformat()
     return value
 
 

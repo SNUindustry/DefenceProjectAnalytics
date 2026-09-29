@@ -314,6 +314,21 @@ class PostRunThresholds:
 
 
 @dataclass(frozen=True, slots=True)
+class RunRetentionThresholds:
+    eligible_anchors: int = 30
+    observed_next_attempts: int = 20
+    threshold_resolved_denominator: int = 20
+
+    def __post_init__(self) -> None:
+        if min(
+            self.eligible_anchors,
+            self.observed_next_attempts,
+            self.threshold_resolved_denominator,
+        ) < 0:
+            raise ValueError("Run-retention thresholds must be non-negative")
+
+
+@dataclass(frozen=True, slots=True)
 class ComparisonThresholds:
     min_stage_final_attempts: int = 30
     min_weapon_detail_attempts: int = 20

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import date, datetime
 import json
 from pathlib import Path
 import sys
@@ -11,7 +11,10 @@ from typing import Any, Sequence
 
 from defence_project_analytics.bigquery_client import get_client
 from defence_project_analytics.config import AnalyticsConfig
-from defence_project_analytics.contract_validation import validate_contracts
+from defence_project_analytics.contract_validation import (
+    validate_contracts, validate_b8_source_contracts, validate_r3b_source_contracts,
+    validate_r3d_contracts, validate_r4a_contracts, validate_r4c_contracts,
+)
 from defence_project_analytics.errors import AnalyticsFoundationError
 from defence_project_analytics.smoke import run_connection_smoke
 from defence_project_analytics.stage_difficulty import (
@@ -44,6 +47,40 @@ from defence_project_analytics.post_run_behavior import (
     DEFAULT_MAXIMUM_TOTAL_BYTES as POST_RUN_DEFAULT_MAXIMUM_TOTAL_BYTES,
     PostRunBehaviorRequest,
     generate_post_run_behavior_report,
+)
+from defence_project_analytics.run_retention import (
+    DEFAULT_MAXIMUM_TOTAL_BYTES as RETENTION_DEFAULT_MAXIMUM_TOTAL_BYTES,
+    RunRetentionRequest,
+    generate_run_retention_report,
+)
+from defence_project_analytics.observed_app_return import (
+    DEFAULT_MAXIMUM_TOTAL_BYTES as APP_RETURN_DEFAULT_MAXIMUM_TOTAL_BYTES,
+    ObservedAppReturnRequest,
+    estimate_bytes as estimate_app_return_bytes,
+    generate_observed_app_return_report,
+)
+from defence_project_analytics.ga_identity_bridge import (
+    DEFAULT_GA_EXPORT_START_DATE,
+    DEFAULT_GA_BRIDGE_OBSERVATION_START_UTC,
+    DEFAULT_GA_PROJECT,
+    DEFAULT_GA_PROPERTY_ID,
+    DEFAULT_GA_STREAM_ID,
+    DEFAULT_MAXIMUM_TOTAL_BYTES as GA_BRIDGE_DEFAULT_MAXIMUM_TOTAL_BYTES,
+    GaIdentityBridgeRequest,
+    estimate_ga_identity_bridge_bytes,
+    generate_ga_identity_bridge_report,
+)
+from defence_project_analytics.observed_uninstall import (
+    ObservedUninstallRequest,
+    estimate_observed_uninstall_bytes,
+    generate_observed_uninstall_report,
+)
+from defence_project_analytics.retention_evidence import (
+    RetentionEvidenceRequest,
+    analyze_retention_evidence,
+    generate_retention_evidence_report,
+    load_comparison_plan,
+    validate_retention_evidence_bundle,
 )
 from defence_project_analytics.content_version_comparison import (
     DEFAULT_MAXIMUM_TOTAL_BYTES as COMPARISON_DEFAULT_MAXIMUM_TOTAL_BYTES,
@@ -91,6 +128,13 @@ def _parse_datetime(value: str) -> datetime:
     return parsed
 
 
+def _parse_date(value: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("expected a YYYY-MM-DD date") from exc
+
+
 def _parse_domains(value: str) -> tuple[str, ...]:
     domains = tuple(item.strip() for item in value.split(",") if item.strip())
     if not domains:
@@ -104,15 +148,47 @@ def build_parser() -> argparse.ArgumentParser:
         prog="defence-analytics",
         description="Read-only DefenceProject BigQuery analytics foundation",
     )
-    parser.add_argument("--project", default=defaults.project_id)
-    parser.add_argument("--dataset", default=defaults.dataset_id)
-    parser.add_argument("--location", default=defaults.location)
+    parser.add_argument(
+        "--backend",
+        choices=("test", "production"),
+        default=defaults.backend_name,
+        help="Approved physical Firebase/BigQuery backend profile",
+    )
+    parser.add_argument("--project", help="Must match the selected backend profile")
+    parser.add_argument("--dataset", help="Must match the selected backend profile")
+    parser.add_argument("--location", help="Must match the selected backend profile")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("connection-smoke", help="Check six required objects with read-only queries")
     subparsers.add_parser(
         "validate-contracts", help="Parse local contracts and validate required live columns"
     )
+    subparsers.add_parser(
+        "validate-b8-contracts", help="Validate all B-8 source fields in one backend"
+    )
+    r3b_contracts = subparsers.add_parser(
+        "validate-r3b-contracts", help="Validate GA bridge source fields"
+    )
+    r3b_contracts.add_argument("--ga-project", default=DEFAULT_GA_PROJECT)
+    r3b_contracts.add_argument("--ga-property", default=DEFAULT_GA_PROPERTY_ID)
+    r3b_contracts.add_argument("--ga-table")
+    r3d_contracts = subparsers.add_parser(
+        "validate-r3d-contracts", help="Validate Observed Uninstall source fields"
+    )
+    r3d_contracts.add_argument("--ga-project", default=DEFAULT_GA_PROJECT)
+    r3d_contracts.add_argument("--ga-property", default=DEFAULT_GA_PROPERTY_ID)
+    r3d_contracts.add_argument("--ga-table")
+    r3d_contracts.add_argument("--normal-bundle", type=Path)
+    r3d_contracts.add_argument("--restricted-artifact", type=Path)
+    subparsers.add_parser(
+        "validate-r4a-contracts",
+        help="Validate the local R4-A Retention Evidence Policy Contract",
+    )
+    r4c_contracts = subparsers.add_parser(
+        "validate-r4c-contracts",
+        help="Validate local R4-C C-1/C-2 authority integration",
+    )
+    r4c_contracts.add_argument("--normal-bundle", type=Path)
 
     overview = subparsers.add_parser("stage-overview", help="Calculate aggregate stage metrics")
     overview.add_argument("--stage-key", required=True)
@@ -229,6 +305,126 @@ def build_parser() -> argparse.ArgumentParser:
     post_run.add_argument(
         "--maximum-total-bytes", type=int, default=POST_RUN_DEFAULT_MAXIMUM_TOTAL_BYTES
     )
+    retention = subparsers.add_parser(
+        "run-retention", help="Generate aggregate Run Retention report bundle"
+    )
+    retention.add_argument("--environment", required=True, choices=("Production", "Test"))
+    retention.add_argument("--content-version", required=True, type=int)
+    retention.add_argument("--stage-key")
+    retention.add_argument("--final-outcome", choices=("Clear", "Dead", "Abandon"))
+    retention.add_argument("--app-version")
+    retention.add_argument("--release-id")
+    retention.add_argument("--release-channel")
+    retention.add_argument("--release-type")
+    retention.add_argument("--development-build", type=_parse_bool)
+    retention.add_argument("--run-ended-start-utc", type=_parse_datetime)
+    retention.add_argument("--run-ended-end-utc", type=_parse_datetime)
+    retention.add_argument("--uploaded-start-utc", type=_parse_datetime)
+    retention.add_argument("--uploaded-end-utc", type=_parse_datetime)
+    retention.add_argument("--as-of-utc", type=_parse_datetime)
+    retention.add_argument("--long-term-no-next-run-threshold-days", type=int)
+    retention.add_argument("--source-upload-grace-hours", type=int)
+    retention.add_argument("--output-root", type=Path, default=Path("reports/generated"))
+    retention.add_argument("--overwrite", action="store_true")
+    retention.add_argument(
+        "--maximum-total-bytes", type=int, default=RETENTION_DEFAULT_MAXIMUM_TOTAL_BYTES
+    )
+    app_return = subparsers.add_parser(
+        "observed-app-return", help="Generate B-8 factual observed app-return report"
+    )
+    app_return.add_argument("--environment", required=True, choices=("Test", "Production"))
+    app_return.add_argument("--content-version", required=True, type=int)
+    app_return.add_argument("--stage-key")
+    app_return.add_argument("--final-outcome", choices=("Clear", "Dead", "Abandon"))
+    app_return.add_argument("--app-version")
+    app_return.add_argument("--release-id")
+    app_return.add_argument("--release-channel")
+    app_return.add_argument("--release-type")
+    app_return.add_argument("--run-ended-start-utc", type=_parse_datetime)
+    app_return.add_argument("--run-ended-end-utc", type=_parse_datetime)
+    app_return.add_argument("--uploaded-start-utc", type=_parse_datetime)
+    app_return.add_argument("--uploaded-end-utc", type=_parse_datetime)
+    app_return.add_argument("--as-of-utc", "--as-of", required=True, type=_parse_datetime)
+    app_return.add_argument("--threshold-days", type=int)
+    app_return.add_argument("--source-upload-grace-hours", type=int)
+    app_return.add_argument("--dry-run", action="store_true")
+    app_return.add_argument("--output-root", type=Path, default=Path("reports/generated"))
+    app_return.add_argument("--overwrite", action="store_true")
+    app_return.add_argument(
+        "--maximum-total-bytes", type=int, default=APP_RETURN_DEFAULT_MAXIMUM_TOTAL_BYTES
+    )
+    ga_bridge = subparsers.add_parser(
+        "ga-identity-bridge", help="Generate the R3-B GA temporal identity bridge"
+    )
+    ga_bridge.add_argument("--environment", default="Production", choices=("Production", "Test"))
+    ga_bridge.add_argument("--ga-project", default=DEFAULT_GA_PROJECT)
+    ga_bridge.add_argument("--ga-property", default=DEFAULT_GA_PROPERTY_ID)
+    ga_bridge.add_argument("--ga-stream", default=DEFAULT_GA_STREAM_ID)
+    ga_bridge.add_argument("--ga-start-date", type=_parse_date, default=DEFAULT_GA_EXPORT_START_DATE)
+    ga_bridge.add_argument("--ga-end-date", type=_parse_date)
+    ga_bridge.add_argument("--as-of", required=True, type=_parse_datetime)
+    ga_bridge.add_argument(
+        "--observation-start", type=_parse_datetime,
+        default=DEFAULT_GA_BRIDGE_OBSERVATION_START_UTC,
+    )
+    ga_bridge.add_argument("--dry-run", action="store_true")
+    ga_bridge.add_argument("--output-root", type=Path, default=Path("reports/generated"))
+    ga_bridge.add_argument(
+        "--restricted-output-root", type=Path, default=Path("reports/restricted")
+    )
+    ga_bridge.add_argument("--overwrite", action="store_true")
+    ga_bridge.add_argument(
+        "--maximum-total-bytes", type=int,
+        default=GA_BRIDGE_DEFAULT_MAXIMUM_TOTAL_BYTES,
+    )
+    uninstall = subparsers.add_parser(
+        "observed-uninstall", help="Generate the R3-D factual app_remove report"
+    )
+    uninstall.add_argument(
+        "--environment", default="Production", choices=("Production", "Test")
+    )
+    uninstall.add_argument("--ga-project", default=DEFAULT_GA_PROJECT)
+    uninstall.add_argument("--ga-property", default=DEFAULT_GA_PROPERTY_ID)
+    uninstall.add_argument("--ga-stream", default=DEFAULT_GA_STREAM_ID)
+    uninstall.add_argument(
+        "--start-date", "--ga-start-date", dest="start_date",
+        type=_parse_date, default=DEFAULT_GA_EXPORT_START_DATE,
+    )
+    uninstall.add_argument(
+        "--end-date", "--ga-end-date", dest="end_date", type=_parse_date
+    )
+    uninstall.add_argument("--as-of", required=True, type=_parse_datetime)
+    uninstall.add_argument(
+        "--observation-start", type=_parse_datetime,
+        default=DEFAULT_GA_BRIDGE_OBSERVATION_START_UTC,
+    )
+    uninstall.add_argument("--dry-run", action="store_true")
+    uninstall.add_argument("--output-root", type=Path, default=Path("reports/generated"))
+    uninstall.add_argument(
+        "--restricted-output-root", type=Path, default=Path("reports/restricted")
+    )
+    uninstall.add_argument("--overwrite", action="store_true")
+    uninstall.add_argument(
+        "--maximum-total-bytes", type=int,
+        default=GA_BRIDGE_DEFAULT_MAXIMUM_TOTAL_BYTES,
+    )
+    evidence = subparsers.add_parser(
+        "retention-evidence", help="Compose R4-B retention evidence artifacts"
+    )
+    evidence.add_argument("--environment", required=True, choices=("Production", "Test"))
+    evidence.add_argument("--analysis-as-of", "--as-of", required=True, type=_parse_datetime)
+    evidence.add_argument("--horizon-days", type=int)
+    evidence.add_argument("--source-upload-grace-hours", type=int)
+    evidence.add_argument("--content-version", type=int)
+    evidence.add_argument("--release-id")
+    evidence.add_argument("--comparison-plan", type=Path)
+    evidence.add_argument("--gameplay-artifact", type=Path, required=True)
+    evidence.add_argument("--app-artifact", type=Path, required=True)
+    evidence.add_argument("--uninstall-artifact", type=Path, required=True)
+    evidence.add_argument("--output-root", type=Path, default=Path("reports/generated"))
+    evidence.add_argument("--restricted-output-root", type=Path, default=Path("reports/restricted"))
+    evidence.add_argument("--overwrite", action="store_true")
+    evidence.add_argument("--validation-only", "--dry-run", action="store_true")
     comparison = subparsers.add_parser(
         "content-version-compare", help="Compare aggregate analytics across two contentVersions"
     )
@@ -310,7 +506,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    tokens = list(argv) if argv is not None else sys.argv[1:]
+    parser = build_parser()
+    args = parser.parse_args(tokens)
+    if args.command in {
+        "observed-app-return", "ga-identity-bridge", "observed-uninstall", "retention-evidence",
+    } and not any(
+        token == "--backend" or token.startswith("--backend=") for token in tokens
+    ):
+        parser.error(f"{args.command} requires explicit --backend test|production")
     if args.command == "analysis-run":
         try:
             provider = AnthropicAnalysisProvider(
@@ -499,7 +703,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             included = list(scope["domains"])
             all_domains = {
                 "stageDifficulty", "weaponPerformance", "upgradeChoice",
-                "progressionNextRun", "postRunBehavior",
+                "progressionNextRun", "postRunBehavior", "runRetention",
             }
             _json({
                 "reportPath": str(path.resolve()),
@@ -522,8 +726,70 @@ def main(argv: Sequence[str] | None = None) -> int:
         except Exception as exc:
             print(f"Analysis Brief command failed: {exc}", file=sys.stderr)
             return 1
-    config = AnalyticsConfig(args.project, args.dataset, args.location)
+    # R4-A is an executable local policy contract. It must not load ADC,
+    # construct a BigQuery client, or inspect live population data.
+    if args.command == "validate-r4a-contracts":
+        report = validate_r4a_contracts()
+        _json(report.to_dict())
+        return 0 if report.ready else 1
+    if args.command == "validate-r4c-contracts":
+        report = validate_r4c_contracts(args.normal_bundle)
+        _json(report.to_dict())
+        return 0 if report.ready else 1
+    if args.command == "retention-evidence":
+        try:
+            request = RetentionEvidenceRequest(
+                backend=args.backend, environment=args.environment,
+                analysis_as_of_utc=args.analysis_as_of,
+                horizon_days=args.horizon_days,
+                source_upload_grace_hours=args.source_upload_grace_hours,
+                content_version=args.content_version, release_id=args.release_id,
+                comparison_plan=(
+                    load_comparison_plan(args.comparison_plan)
+                    if args.comparison_plan is not None else None
+                ),
+            )
+            if args.validation_only:
+                analysis = analyze_retention_evidence(
+                    request, gameplay_artifact=args.gameplay_artifact,
+                    app_artifact=args.app_artifact,
+                    uninstall_artifact=args.uninstall_artifact,
+                )
+                _json({
+                    "validationOnly": True, "analysisType": "retentionEvidence",
+                    "episodeCount": analysis.metrics["retentionEvidence"]["episodeCount"],
+                    "sourceCuts": analysis.metadata["sourceCuts"],
+                })
+                return 0
+            output = generate_retention_evidence_report(
+                request, gameplay_artifact=args.gameplay_artifact,
+                app_artifact=args.app_artifact,
+                uninstall_artifact=args.uninstall_artifact,
+                output_root=args.output_root,
+                restricted_output_root=args.restricted_output_root,
+                overwrite=args.overwrite,
+            )
+            validation = validate_retention_evidence_bundle(output.report_path)
+            _json({
+                "reportPath": str(output.report_path.resolve()),
+                "restrictedArtifactPath": str(output.restricted_path.resolve()),
+                "analysisType": "retentionEvidence", "validation": validation,
+            })
+            return 0 if validation["ready"] else 1
+        except Exception as exc:
+            print(f"Retention Evidence command failed: {exc}", file=sys.stderr)
+            return 1
     try:
+        profile = AnalyticsConfig.for_backend(args.backend)
+        config = AnalyticsConfig(
+            args.project or profile.project_id,
+            args.dataset or profile.dataset_id,
+            args.location or profile.location,
+            profile.backend_environment,
+            profile.backend_name,
+        )
+        if hasattr(args, "environment"):
+            config.require_environment(args.environment)
         client = get_client(config)
         if args.command == "connection-smoke":
             results = run_connection_smoke(client=client, config=config)
@@ -536,6 +802,38 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if args.command == "validate-contracts":
             report = validate_contracts(client=client, config=config)
+            _json(report.to_dict())
+            return 0 if report.ready else 1
+        if args.command == "validate-b8-contracts":
+            if not any(
+                token == "--backend" or token.startswith("--backend=") for token in tokens
+            ):
+                raise ValueError("validate-b8-contracts requires explicit --backend")
+            report = validate_b8_source_contracts(client=client, config=config)
+            _json(report.to_dict())
+            return 0 if report.ready else 1
+        if args.command == "validate-r3b-contracts":
+            if not any(
+                token == "--backend" or token.startswith("--backend=") for token in tokens
+            ):
+                raise ValueError("validate-r3b-contracts requires explicit --backend")
+            report = validate_r3b_source_contracts(
+                client=client, config=config, ga_project=args.ga_project,
+                ga_property_id=args.ga_property, ga_table_id=args.ga_table,
+            )
+            _json(report.to_dict())
+            return 0 if report.ready else 1
+        if args.command == "validate-r3d-contracts":
+            if not any(
+                token == "--backend" or token.startswith("--backend=") for token in tokens
+            ):
+                raise ValueError("validate-r3d-contracts requires explicit --backend")
+            report = validate_r3d_contracts(
+                client=client, config=config, ga_project=args.ga_project,
+                ga_property_id=args.ga_property, ga_table_id=args.ga_table,
+                normal_bundle=args.normal_bundle,
+                restricted_artifact=args.restricted_artifact,
+            )
             _json(report.to_dict())
             return 0 if report.ready else 1
 
@@ -767,6 +1065,217 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "committedSuccessWindowCount": sample["committedSuccessWindows"],
                 "nextRunWithinWindowCount": sample["nextRunWithinWindowWindows"],
                 "warningCodes": [warning["code"] for warning in metadata["warnings"]],
+                "estimatedBytes": metadata["dryRunEstimatedBytes"],
+            })
+            return 0
+
+        if args.command == "run-retention":
+            request = RunRetentionRequest(
+                environment=args.environment,
+                content_version=args.content_version,
+                stage_key=args.stage_key,
+                final_outcome=args.final_outcome,
+                app_version=args.app_version,
+                release_id=args.release_id,
+                release_channel=args.release_channel,
+                release_type=args.release_type,
+                is_development_build=args.development_build,
+                run_ended_at_utc_start=args.run_ended_start_utc,
+                run_ended_at_utc_end=args.run_ended_end_utc,
+                uploaded_at_utc_start=args.uploaded_start_utc,
+                uploaded_at_utc_end=args.uploaded_end_utc,
+                analysis_as_of_utc=args.as_of_utc,
+                long_term_no_next_run_threshold_days=(
+                    args.long_term_no_next_run_threshold_days
+                ),
+                source_upload_grace_hours=args.source_upload_grace_hours,
+            )
+            path = generate_run_retention_report(
+                request,
+                output_root=args.output_root,
+                overwrite=args.overwrite,
+                client=client,
+                config=config,
+                maximum_total_bytes=args.maximum_total_bytes,
+            )
+            metadata = json.loads((path / "metadata.json").read_text(encoding="utf-8"))
+            metrics = json.loads((path / "metrics.json").read_text(encoding="utf-8"))
+            sample = metadata["sample"]
+            threshold = metrics["thresholdClassification"]
+            _json({
+                "reportPath": str(path.resolve()),
+                "scope": metadata["scope"],
+                "anchorFinalAttemptCount": sample["anchorFinalAttempts"],
+                "eligibleAnchorCount": sample["eligibleAnchors"],
+                "nextRunObservedCount": sample["nextRunObserved"],
+                "noNextRunObservedAsOfCount": sample["noNextRunObservedAsOf"],
+                "latencyRightCensoredCount": metadata["quality"]["latencyRightCensoredAnchors"],
+                "thresholdRightCensoredCount": threshold["thresholdRightCensoredCount"],
+                "longTermNoNextRunCount": threshold["noNextRunBeyondThresholdCount"],
+                "warningCodes": [warning["code"] for warning in metadata["warnings"]],
+                "estimatedBytes": metadata["dryRunEstimatedBytes"],
+            })
+            return 0
+
+        if args.command == "observed-app-return":
+            request = ObservedAppReturnRequest(
+                environment=args.environment,
+                content_version=args.content_version,
+                analysis_as_of_utc=args.as_of_utc,
+                stage_key=args.stage_key,
+                final_outcome=args.final_outcome,
+                app_version=args.app_version,
+                release_id=args.release_id,
+                release_channel=args.release_channel,
+                release_type=args.release_type,
+                run_ended_at_utc_start=args.run_ended_start_utc,
+                run_ended_at_utc_end=args.run_ended_end_utc,
+                uploaded_at_utc_start=args.uploaded_start_utc,
+                uploaded_at_utc_end=args.uploaded_end_utc,
+                threshold_days=args.threshold_days,
+                source_upload_grace_hours=args.source_upload_grace_hours,
+            )
+            if args.dry_run:
+                _, estimates = estimate_app_return_bytes(request, config=config, client=client)
+                total = sum(estimates.values())
+                if total > args.maximum_total_bytes:
+                    raise RuntimeError(
+                        f"B-8 estimate {total:,} exceeds maximum "
+                        f"{args.maximum_total_bytes:,} bytes"
+                    )
+                _json({"dryRun": True, "estimatedBytes": total, "queries": estimates})
+                return 0
+            path = generate_observed_app_return_report(
+                request, config=config, client=client, output_root=args.output_root,
+                overwrite=args.overwrite, maximum_total_bytes=args.maximum_total_bytes,
+            )
+            metadata = json.loads((path / "metadata.json").read_text(encoding="utf-8"))
+            _json({
+                "reportPath": str(path.resolve()),
+                "analysisType": "observedAppReturn",
+                "sample": metadata["sample"],
+                "warningCodes": [item["code"] for item in metadata["warnings"]],
+                "estimatedBytes": metadata["dryRunEstimatedBytes"],
+            })
+            return 0
+
+        if args.command == "ga-identity-bridge":
+            request = GaIdentityBridgeRequest(
+                telemetry_backend=args.backend,
+                environment=args.environment,
+                ga_project=args.ga_project,
+                ga_property_id=args.ga_property,
+                ga_stream_id=args.ga_stream,
+                analysis_as_of_utc=args.as_of,
+                observation_start_utc=args.observation_start,
+                ga_date_start=args.ga_start_date,
+                ga_date_end=args.ga_end_date,
+            )
+            if args.dry_run:
+                selected, _, estimate = estimate_ga_identity_bridge_bytes(
+                    request, config=config, client=client
+                )
+                if estimate > args.maximum_total_bytes:
+                    raise RuntimeError(
+                        f"R3-B estimate {estimate:,} exceeds maximum "
+                        f"{args.maximum_total_bytes:,} bytes"
+                    )
+                _json({
+                    "dryRun": True,
+                    "estimatedBytes": estimate,
+                    "selectedTables": [
+                        {
+                            "date": item.source_date,
+                            "kind": item.kind,
+                            "finalizationState": item.finalization_state,
+                        }
+                        for item in selected
+                    ],
+                })
+                return 0
+            output = generate_ga_identity_bridge_report(
+                request, config=config, client=client,
+                output_root=args.output_root,
+                restricted_output_root=args.restricted_output_root,
+                overwrite=args.overwrite,
+                maximum_total_bytes=args.maximum_total_bytes,
+            )
+            metadata = json.loads(
+                (output.report_path / "metadata.json").read_text(encoding="utf-8")
+            )
+            metrics = json.loads(
+                (output.report_path / "metrics.json").read_text(encoding="utf-8")
+            )
+            _json({
+                "reportPath": str(output.report_path.resolve()),
+                "restrictedArtifactPath": str(output.restricted_path.resolve()),
+                "analysisType": "gaIdentityBridge",
+                "mappedCount": metrics["mapping"]["mappedCount"],
+                "mappedRate": metrics["mapping"]["mappedRate"],
+                "warningCodes": [item["code"] for item in metadata["warnings"]],
+                "estimatedBytes": metadata["dryRunEstimatedBytes"],
+            })
+            return 0
+
+        if args.command == "observed-uninstall":
+            request = ObservedUninstallRequest(
+                telemetry_backend=args.backend,
+                environment=args.environment,
+                ga_project=args.ga_project,
+                ga_property_id=args.ga_property,
+                ga_stream_id=args.ga_stream,
+                analysis_as_of_utc=args.as_of,
+                observation_start_utc=args.observation_start,
+                ga_date_start=args.start_date,
+                ga_date_end=args.end_date,
+            )
+            if args.dry_run:
+                selected, _, _, estimate = estimate_observed_uninstall_bytes(
+                    request, config=config, client=client
+                )
+                if estimate > args.maximum_total_bytes:
+                    raise RuntimeError(
+                        f"R3-D estimate {estimate:,} exceeds maximum "
+                        f"{args.maximum_total_bytes:,} bytes"
+                    )
+                _json({
+                    "dryRun": True,
+                    "estimatedBytes": estimate,
+                    "queryCount": 2,
+                    "selectedTables": [
+                        {
+                            "date": item.source_date,
+                            "kind": item.kind,
+                            "finalizationState": item.finalization_state,
+                        }
+                        for item in selected
+                    ],
+                })
+                return 0
+            output = generate_observed_uninstall_report(
+                request,
+                config=config,
+                client=client,
+                output_root=args.output_root,
+                restricted_output_root=args.restricted_output_root,
+                overwrite=args.overwrite,
+                maximum_total_bytes=args.maximum_total_bytes,
+            )
+            metadata = json.loads(
+                (output.report_path / "metadata.json").read_text(encoding="utf-8")
+            )
+            metrics = json.loads(
+                (output.report_path / "metrics.json").read_text(encoding="utf-8")
+            )
+            _json({
+                "reportPath": str(output.report_path.resolve()),
+                "restrictedArtifactPath": str(output.restricted_path.resolve()),
+                "analysisType": "observedUninstall",
+                "observedCount": metrics["uninstall"]["observedCount"],
+                "mappedCount": metrics["attribution"]["mappedCount"],
+                "unmappedCount": metrics["attribution"]["unmappedCount"],
+                "ambiguousCount": metrics["attribution"]["ambiguousCount"],
+                "warningCodes": [item["code"] for item in metadata["warnings"]],
                 "estimatedBytes": metadata["dryRunEstimatedBytes"],
             })
             return 0

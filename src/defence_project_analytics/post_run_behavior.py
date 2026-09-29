@@ -42,7 +42,9 @@ from defence_project_analytics.sql_loader import load_sql, named_parameter_names
 ANALYSIS_VERSION = "1.1.0"
 DEFAULT_MAXIMUM_TOTAL_BYTES = 1_000_000_000
 POPULATION_FRAGMENT = "sql/analysis/_post_run_population_ctes_v1.sql"
+NEXT_ATTEMPT_FRAGMENT = "sql/analysis/_next_new_attempt_ctes_v1.sql"
 INCLUDE_MARKER = "-- @include post_run_population_ctes_v1"
+NEXT_ATTEMPT_INCLUDE_MARKER = "-- @include next_new_attempt_ctes_v1"
 SQL_FILES = {
     "population": "sql/analysis/post_run_population_v1.sql",
     "navigation": "sql/analysis/post_run_navigation_v1.sql",
@@ -213,6 +215,10 @@ def build_post_run_behavior_queries(
 ) -> dict[str, QuerySpec]:
     as_of = analysis_as_of_utc or request.resolved_as_of(clock)
     fragment = load_sql(POPULATION_FRAGMENT, config=config)
+    next_attempt_fragment = load_sql(NEXT_ATTEMPT_FRAGMENT, config=config)
+    if fragment.count(NEXT_ATTEMPT_INCLUDE_MARKER) != 1:
+        raise ValueError("Post-run population SQL must contain exactly one next-attempt marker")
+    fragment = fragment.replace(NEXT_ATTEMPT_INCLUDE_MARKER, next_attempt_fragment)
     parameters = post_run_parameters(request, as_of)
     queries: dict[str, QuerySpec] = {}
     for name, path in SQL_FILES.items():

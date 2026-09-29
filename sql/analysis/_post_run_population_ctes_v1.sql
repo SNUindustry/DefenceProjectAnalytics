@@ -21,33 +21,8 @@ anchors AS (
     AND (@uploaded_start_utc IS NULL OR uploadedAtUtc >= @uploaded_start_utc)
     AND (@uploaded_end_utc IS NULL OR uploadedAtUtc < @uploaded_end_utc)
 ),
-run_start_deduped AS (
-  SELECT environment, runId, isFromResume
-  FROM `<firebase-project-id>.<bigquery-dataset-id>.telemetry_run_start_snapshot`
-  WHERE environment = @environment AND uploadedAtUtc < @analysis_as_of_utc
-  QUALIFY ROW_NUMBER() OVER (
-    PARTITION BY environment, runId
-    ORDER BY uploadedAtUtc DESC, COALESCE(rowIndex, -1) DESC
-  ) = 1
-),
-new_attempt_segments AS (
-  SELECT
-    g.environment, g.telemetryPlayerId, g.attemptId, g.runId, g.stageKey,
-    g.segmentStartedAtUtc, g.contentVersion, g.releaseId
-  FROM `<firebase-project-id>.<bigquery-dataset-id>.telemetry_gameplay_segments_v1` AS g
-  LEFT JOIN run_start_deduped AS s
-    ON s.environment = g.environment AND s.runId = g.runId
-  WHERE g.environment = @environment
-    AND g.uploadedAtUtc < @analysis_as_of_utc
-    AND g.segmentStartedAtUtc < @analysis_as_of_utc
-    AND g.segmentIndex = 1
-    AND NULLIF(TRIM(g.attemptId), '') IS NOT NULL
-    AND s.isFromResume IS NOT TRUE
-  QUALIFY ROW_NUMBER() OVER (
-    PARTITION BY g.environment, g.telemetryPlayerId, g.attemptId
-    ORDER BY g.uploadedAtUtc DESC, g.runId DESC
-  ) = 1
-),
+-- @include next_new_attempt_ctes_v1
+,
 next_candidates AS (
   SELECT
     a.anchorKey,
@@ -381,14 +356,16 @@ result_observation AS (
   FROM transaction_results AS r
 ),
 normalized_actions AS (
-  SELECT anchorKey, occurredAtUtc, IF(eventKind = 'TabViewed', 20, 30), rowIndex, eventId,
+  SELECT anchorKey, occurredAtUtc,
+    IF(eventKind = 'TabViewed', 20, 30) AS domainPriority,
+    rowIndex, eventId,
     CASE WHEN eventKind = 'TabViewed' THEN CONCAT('TabViewed', COALESCE(tab, 'Unknown'))
       WHEN eventKind = 'ShopSectionViewed' THEN CONCAT('ShopSection', COALESCE(shopSection, 'Unknown'))
-      ELSE CONCAT('Unrecognized:', eventKind) END,
+      ELSE CONCAT('Unrecognized:', eventKind) END AS observedAction,
     CASE WHEN eventKind = 'TabViewed' AND navigationSource = 'User' THEN
       CASE tab WHEN 'Shop' THEN 'Shop' WHEN 'Equipment' THEN 'Equipment'
         WHEN 'RandomBox' THEN 'RandomBox' WHEN 'Evolution' THEN 'Evolution'
-        WHEN 'Battle' THEN 'Battle' ELSE 'Other' END ELSE NULL END,
+        WHEN 'Battle' THEN 'Battle' ELSE 'Other' END ELSE NULL END AS userAction,
     sameContent, sameRelease
   FROM lobby_windowed
   UNION ALL
