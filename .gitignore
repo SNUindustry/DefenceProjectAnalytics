@@ -46,6 +46,9 @@ tmp/
 
 # Generated reports
 reports/generated/
+reports/restricted/
+reports/live-recheck/
+reports/restricted-live-recheck/
 reports/*.html
 reports/*.pdf
 
