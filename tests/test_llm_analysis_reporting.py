@@ -50,7 +50,7 @@ def test_renderer_uses_evidence_values_and_writes_four_safe_files(tmp_path: Path
     manifest = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["analysisVersion"] == "1.0.0"
     assert manifest["analysisPolicyVersion"] == "1.6.0"
-    assert manifest["promptTemplateVersion"] == "1.6.0"
+    assert manifest["promptTemplateVersion"] == "1.7.0"
     assert manifest["responseContractVersion"] == "1.0.0"
     assert manifest["providerCallCount"] == 0
     assert manifest["automaticDeploymentAuthorized"] is False

@@ -34,11 +34,15 @@ def test_prompt_is_deterministic_and_preserves_all_selected_evidence(tmp_path: P
     assert "possible adverse consequences or uncertainties" in left.prompt
     assert left.request_payload["analysisVersion"] == ANALYSIS_VERSION == "1.0.0"
     assert left.request_payload["analysisPolicyVersion"] == ANALYSIS_POLICY_VERSION == "1.6.0"
-    assert left.request_payload["promptTemplateVersion"] == PROMPT_TEMPLATE_VERSION == "1.6.0"
+    assert left.request_payload["promptTemplateVersion"] == PROMPT_TEMPLATE_VERSION == "1.7.0"
     assert "Evidence gaps may discuss a possible causal relationship" in left.prompt
     assert "Keep observation, association, and causality distinct" in left.prompt
     assert "observational evidence does not establish" in left.prompt
-    assert "ObservedUninstall is not churn or permanent loss" in left.prompt
+    assert "reports observed events or bounded absence" in left.prompt
+    assert "Never use player-state labels" in left.prompt
+    assert "even to negate, qualify, quote" in left.prompt
+    assert "zero eligible lifecycle-return population" in left.prompt
+    assert "one-player historical" in left.prompt
     assert left.request_payload["responseContractVersion"] == RESPONSE_CONTRACT_VERSION == "1.0.0"
 
 

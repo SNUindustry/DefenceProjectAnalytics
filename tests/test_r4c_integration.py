@@ -22,6 +22,7 @@ from defence_project_analytics.llm_analysis.anthropic_transport import (
 )
 from defence_project_analytics.llm_analysis.errors import AnalysisResponseValidationError
 from defence_project_analytics.llm_analysis.validator import (
+    _R4_SEMANTIC_OVERREACH,
     validate_response,
     validate_stage_a,
     validate_stage_b,
@@ -287,6 +288,31 @@ def test_r4_semantic_overreach_is_rejected_for_direct_citation(tmp_path: Path) -
     with pytest.raises(AnalysisResponseValidationError) as exc:
         validate_response(package, response)
     assert any(item["code"] == "R4_SEMANTIC_OVERREACH" for item in exc.value.issues)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "5 of 6 anchors had a new attempt observed.",
+        "No app_remove observation is available.",
+        "B-8 had 0 eligible anchors.",
+        "Retention evidence is limited by lifecycle eligibility.",
+    ],
+)
+def test_r4_exact_event_vocabulary_has_no_player_state_overreach(text: str) -> None:
+    assert _R4_SEMANTIC_OVERREACH.search(text) is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "5 of 6 players were retained.",
+        "1 player churned.",
+        "The right-censored anchor represents churn.",
+    ],
+)
+def test_r4_player_state_vocabulary_remains_semantic_overreach(text: str) -> None:
+    assert _R4_SEMANTIC_OVERREACH.search(text) is not None
 
 
 def test_r4c_registry_and_local_cli_contract(tmp_path: Path, monkeypatch, capsys) -> None:
