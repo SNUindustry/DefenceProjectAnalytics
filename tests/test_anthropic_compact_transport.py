@@ -1914,6 +1914,10 @@ def test_stage_prompts_expose_canonical_limits_without_copying_full_schema(
         "additional analysis or observation would distinguish alternative explanations"
         in system_a
     )
+    assert "Keep three epistemic levels distinct" in system_a
+    assert "Deaths were associated with shorter runs in this sample" in system_a
+    assert "Weapon X caused more deaths" in system_a
+    assert "ObservedUninstall is an observed app-instance removal" in system_a
     assert "possible adverse consequences or uncertainties" not in system_a
 
     canonical = valid_response(package)
@@ -1934,6 +1938,8 @@ def test_stage_prompts_expose_canonical_limits_without_copying_full_schema(
     assert "includeValidationPlan" in system_b
     assert "possible adverse consequences or uncertainties" in system_b
     assert "do not state a causal consequence as established or certain" in system_b
+    assert "A causal possibility may appear only as an explicit, falsifiable hypothesis" in system_b
+    assert "One hypothesis is that early difficulty contributes to abandonment" in system_b
 
     stage_b = validate_stage_b(
         package,
@@ -1950,6 +1956,8 @@ def test_stage_prompts_expose_canonical_limits_without_copying_full_schema(
     )
     assert "at most 5 validation plans" in system_c
     assert "at most 3" in system_c
+    assert "prospectively test a causal hypothesis" in system_c
+    assert "does not make the existing observational evidence causal" in system_c
     assert "possible adverse consequences or uncertainties" not in system_c
 
 

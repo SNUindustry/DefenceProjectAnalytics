@@ -7,7 +7,7 @@ when its C-1 runtime comparison authority is explicitly `Allowed`; missing or
 denied authority fails closed.
 
 The canonical analysis and response shape remain version `1.0.0`. The semantic validation policy
-is version `1.6.0` and the prompt template is version `1.5.0`. Analysis request bundles record these versions plus
+is version `1.6.0` and the prompt template is version `1.6.0`. Analysis request bundles record these versions plus
 metric registry version `1.2.0` and are
 accepted only when they exactly match the current implementation; older request bundles are not
 silently revalidated under a newer semantic policy.
@@ -82,6 +82,11 @@ The canonical response keeps the following types separate:
 
 Observation and Interpretation prose must not assert unsupported causal certainty. Hypotheses are
 falsifiable possible explanations but remain subject to the existing default prose policy.
+Prompt template `1.6.0` explicitly distinguishes observation, association, and causality across all
+observational domains. It gives bounded wording examples for measured differences and associations,
+reserves causal possibilities for clearly marked Stage B hypotheses, and permits Stage C plans to
+test those hypotheses prospectively without upgrading existing evidence to causal proof. The
+validator and semantic policy remain unchanged and authoritative.
 `ChangeCandidate.risks` has a field-specific prospective-risk policy: it may describe possible or
 modal adverse consequences and uncertainties of the proposed change, but it must not state those
 consequences as established or certain. A certainty marker takes precedence when modal and certain

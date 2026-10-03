@@ -257,9 +257,9 @@ def test_anthropic_output_still_passes_existing_validator_and_records_usage(
     assert manifest["anthropicStrictToolTransportVersion"] == "1.10.0"
     assert manifest["anthropicThreeStageStrictToolTransportVersion"] == "1.10.0"
     assert manifest["anthropicThreeStageStrictToolVersion"] == "1.10.0"
-    assert manifest["anthropicStageContextVersion"] == "1.4.0"
+    assert manifest["anthropicStageContextVersion"] == "1.5.0"
     assert manifest["anthropicStageContextVersions"] == {
-        "A": "1.4.0", "B": "1.6.0", "C": "1.7.0"
+        "A": "1.5.0", "B": "1.7.0", "C": "1.8.0"
     }
     assert manifest["anthropicOutputRefVersion"] == "1.0.0"
     assert manifest["anthropicStageBIdentityVersion"] == "1.0.0"

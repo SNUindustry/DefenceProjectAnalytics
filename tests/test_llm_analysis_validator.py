@@ -177,6 +177,73 @@ def test_warning_authority_is_sorted_and_digest_is_deterministic(tmp_path: Path)
 
 
 @pytest.mark.parametrize(
+    ("section", "field", "text"),
+    [
+        ("observations", "qualitativeStatement", "The observed death rate was higher."),
+        ("interpretations", "statement", "Deaths were associated with shorter runs in this sample."),
+        (
+            "hypotheses",
+            "statement",
+            "One hypothesis is that stage difficulty contributes to abandonment.",
+        ),
+    ],
+)
+def test_bounded_observation_association_and_explicit_hypothesis_are_accepted(
+    tmp_path: Path,
+    section: str,
+    field: str,
+    text: str,
+) -> None:
+    _, package = make_package(tmp_path)
+    response = valid_response(package)
+    response[section][0][field] = text
+    validate_response(package, response)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected_path"),
+    [
+        ("Weapon X caused more deaths.", "$.interpretations[0].statement"),
+        ("Stage difficulty led to abandonment.", "$.interpretations[0].statement"),
+        ("ObservedUninstall proves churn.", "$.interpretations[0].statement"),
+    ],
+)
+def test_unsupported_causal_conclusions_remain_rejected(
+    tmp_path: Path,
+    text: str,
+    expected_path: str,
+) -> None:
+    _, package = make_package(tmp_path)
+    response = valid_response(package)
+    response["interpretations"][0]["statement"] = text
+    with pytest.raises(AnalysisResponseValidationError) as captured:
+        validate_response(package, response)
+    assert captured.value.issues[0]["code"] == "UNSUPPORTED_CAUSAL_LANGUAGE"
+    assert captured.value.issues[0]["path"] == expected_path
+
+
+def test_previous_live_caused_regression_remains_rejected_at_stage_a(
+    tmp_path: Path,
+) -> None:
+    _, package = make_package(tmp_path)
+    response = valid_response(package)
+    response["interpretations"][0]["statement"] = "This caused the observed outcome."
+    stage_a = {
+        key: response[key]
+        for key in ("observations", "interpretations", "evidenceGaps")
+    }
+    with pytest.raises(AnalysisResponseValidationError) as captured:
+        validate_stage_a(package, stage_a)
+    assert captured.value.issues == (
+        {
+            "code": "UNSUPPORTED_CAUSAL_LANGUAGE",
+            "path": "$.interpretations[0].statement",
+            "message": "prohibited wording: caused",
+        },
+    )
+
+
+@pytest.mark.parametrize(
     "text",
     [
         "This change may increase difficulty.",

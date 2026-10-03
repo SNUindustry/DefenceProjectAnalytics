@@ -62,9 +62,9 @@ ANTHROPIC_FLAT_RESPONSE_VERSION = "1.0.0"
 ANTHROPIC_SERIALIZED_ENVELOPE_VERSION = "1.0.0"
 ANTHROPIC_STRICT_TOOL_TRANSPORT_VERSION = "1.0.0"
 ANTHROPIC_THREE_STAGE_STRICT_TOOL_TRANSPORT_VERSION = "1.10.0"
-ANTHROPIC_STAGE_CONTEXT_VERSION = "1.4.0"
-ANTHROPIC_STAGE_B_CONTEXT_VERSION = "1.6.0"
-ANTHROPIC_STAGE_C_CONTEXT_VERSION = "1.7.0"
+ANTHROPIC_STAGE_CONTEXT_VERSION = "1.5.0"
+ANTHROPIC_STAGE_B_CONTEXT_VERSION = "1.7.0"
+ANTHROPIC_STAGE_C_CONTEXT_VERSION = "1.8.0"
 _ANTHROPIC_STAGE_CONTEXT_VERSIONS = {
     "A": ANTHROPIC_STAGE_CONTEXT_VERSION,
     "B": ANTHROPIC_STAGE_B_CONTEXT_VERSION,
@@ -2881,6 +2881,15 @@ def _stage_strict_tool_instruction(stage: str) -> str:
     focus = {
         "A": (
             "Frame direct observations, bounded interpretations, and evidence gaps. "
+            "Keep three epistemic levels distinct: an observation reports what was directly measured; "
+            "an association reports that observed facts co-occurred or differed in this sample; causality "
+            "claims that one factor produced another outcome and is not established by observational Evidence. "
+            "Allowed examples include 'The observed death rate was higher', 'Deaths were associated with shorter "
+            "runs in this sample', and 'The evidence is consistent with a difference, but does not establish why'. "
+            "Do not write conclusions such as 'Weapon X caused more deaths', 'Stage difficulty led to abandonment', "
+            "or equivalent claims that one observed factor caused, drove, produced, explained, or was responsible "
+            "for another. Apply this boundary to every observational domain, including stage, weapon, upgrade, "
+            "post-run, content-version, and retention evidence. "
             "Factual-only Evidence may be cited here; it does not gain decision or target authority. "
             f"Canonical Evidence is the only factual authority. Return at most {MAX_OBSERVATIONS} "
             f"observations, {MAX_RESPONSE_SECTION_ITEMS} interpretations, and "
@@ -2895,10 +2904,18 @@ def _stage_strict_tool_instruction(stage: str) -> str:
             "An Evidence Gap may describe a possible causal relationship only as an unresolved "
             "question, uncertainty, or validation need. It must not state that relationship as an "
             "established fact. State what the supplied evidence cannot yet establish and what "
-            "additional analysis or observation would distinguish alternative explanations."
+            "additional analysis or observation would distinguish alternative explanations. "
+            "For retention, NewAttemptReturn is observed behavior, ObservedAppReturn is observed lifecycle activity, "
+            "and ObservedUninstall is an observed app-instance removal; none proves engagement, churn, uninstall "
+            "permanence, or the reason for an outcome. NoObservedReturn is bounded absence and RightCensored is "
+            "insufficient observation."
         ),
         "B": (
             "Produce hypotheses and change candidates using the complete canonical Evidence. "
+            "A causal possibility may appear only as an explicit, falsifiable hypothesis, using wording such as "
+            "'One hypothesis is that early difficulty contributes to abandonment'. Never recast it as an observed "
+            "fact or write that the data shows a factor causes an outcome. Hypothesis wording does not grant "
+            "causal authority, and the supplied observational evidence remains non-causal. "
             "Only refs in decisionEvidenceRefs may support hypotheses or change candidates; "
             "if that catalog is empty, return empty hypothesis and candidate sections. "
             "Factual-only prior observations provide context but cannot justify a decision. "
@@ -2928,6 +2945,9 @@ def _stage_strict_tool_instruction(stage: str) -> str:
         ),
         "C": (
             "Link validation plans and select executive-summary IDs from validated prior analysis. "
+            "A validation plan may prospectively test a causal hypothesis by changing a factor and observing whether "
+            "a metric changes. That plan does not make the existing observational evidence causal and must not be "
+            "described as proof of an established cause. "
             "Only target-eligible metrics may be targets, guardrails, or rollback indicators. "
             "A supplied retentionEvidence metric may be used only in metricsToWatch as MonitorOnly "
             "when its authority says monitorOnlyEligible=true and runtimeComparison.decision=Allowed. "
